@@ -1,0 +1,32 @@
+{
+  // Dev Container basé sur le service `dev` du compose.
+  // VSCode : "Dev Containers: Reopen in Container" -> démarre `dev` (+ minio)
+  // et installe automatiquement les extensions de debug ci-dessous.
+  "name": "datalake-iot-dev",
+  "dockerComposeFile": ["../compose.yaml"],
+  "service": "dev",
+  "workspaceFolder": "/workspace",
+  // Utilisateur non-root du conteneur (UID aligné sur l'hôte via build args).
+  // updateRemoteUserUID (défaut true) resynchronise l'UID si besoin.
+  "remoteUser": "vscode",
+  // Ne pas arrêter la stack quand on ferme VSCode
+  "shutdownAction": "none",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.debugpy",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": false,
+        "ruff.importStrategy": "fromEnvironment",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

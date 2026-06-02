@@ -1,0 +1,35 @@
+# =============================================================================
+#  Image de DÉVELOPPEMENT — VSCode s'y attache (Dev Containers).
+#  Mêmes libs que requirements.txt, exécutées DANS le réseau Docker : le code
+#  débogué ici est strictement identique à celui exécuté par Airflow
+#  (même hostname `minio`, mêmes variables d'environnement).
+#
+#  Tourne en utilisateur NON-ROOT dont l'UID/GID est aligné sur l'hôte (args de
+#  build USER_UID/USER_GID) -> les fichiers créés dans /workspace vous appartiennent.
+# =============================================================================
+FROM python:3.12-slim
+
+ARG USERNAME=vscode
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+# git : confort VSCode (source control) ; curl : tests/healthchecks ; sudo : confort dev
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git curl sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME
+
+WORKDIR /workspace
+
+# Dépendances projet + debugpy (serveur de debug utilisé par VSCode), installées
+# en root -> disponibles pour tous les utilisateurs (site-packages global).
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt debugpy
+
+# Bascule sur l'utilisateur non-root pour l'exécution.
+USER $USERNAME
+
+# Le code est monté en volume (.:/workspace) -> pas de COPY, édition à chaud.
+CMD ["sleep", "infinity"]

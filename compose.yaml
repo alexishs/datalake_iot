@@ -1,0 +1,345 @@
+# =============================================================================
+#  Data Lake IoT industriel — stack Docker Compose
+# =============================================================================
+#  Briques :
+#    - postgres            : UNE base mutualisée -> 3 schémas/bases isolés
+#                            (airflow, om_airflow, openmetadata)
+#    - minio + minio-init  : stockage objet S3 + création des 4 buckets
+#    - airflow-*           : Airflow métier (DAGs ingestion / harmonisation)
+#    - elasticsearch       : index de recherche requis par OpenMetadata
+#    - openmetadata-server : catalogue / gouvernance
+#    - openmetadata-ingestion : Airflow interne d'OpenMetadata (séparé de l'Airflow métier)
+#
+#  ⚠️  OpenMetadata est très sensible aux versions. Les images server/ingestion
+#      et la version d'Elasticsearch DOIVENT être cohérentes entre elles
+#      (voir variables OM_VERSION / ES_VERSION dans .env). En cas d'erreur au
+#      démarrage, consulter la doc officielle de la version ciblée.
+#
+#  Secrets : aucune valeur sensible en dur. Tout vient de .env (cf .env.example).
+# =============================================================================
+
+# --- Connexion MinIO, IDENTIQUE pour le conteneur dev ET pour Airflow ---------
+#  Le hostname `minio` résout dans tout le réseau Docker -> aucun nom d'hôte en
+#  .env, et le même code tourne tel quel en debug (dev) comme dans Airflow.
+#  Seuls les SECRETS viennent de .env (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD).
+x-minio-env: &minio-env
+  MINIO_ENDPOINT: "http://minio:9000"
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+# --- Fragment commun à l'Airflow métier (réutilisé par init/webserver/scheduler) ---
+x-airflow-common: &airflow-common
+  image: apache/airflow:${AIRFLOW_VERSION:-2.9.3}
+  # Tourne avec VOTRE UID hôte (group 0) : les fichiers écrits dans les bind mounts
+  # (__pycache__ dans ./dags, ./datalake) vous appartiennent. Défaut 50000 = user
+  # `airflow` de l'image. Régler AIRFLOW_UID=$(id -u) dans .env.
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-common-env
+    <<: *minio-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    # boto3 pour parler à MinIO depuis les DAGs (dev only — en prod on build une image)
+    _PIP_ADDITIONAL_REQUIREMENTS: "boto3"
+    # Rend le package `datalake` importable par les DAGs : `import datalake...`
+    PYTHONPATH: /opt/airflow
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./datalake:/opt/airflow/datalake
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - datalake
+
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres mutualisé : héberge les 3 bases (init via init-scripts/)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15
+    container_name: dl-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      # Variables consommées par le script d'init pour créer les 3 bases
+      AIRFLOW_DB: ${AIRFLOW_DB}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      OM_AIRFLOW_DB: ${OM_AIRFLOW_DB}
+      OM_AIRFLOW_DB_USER: ${OM_AIRFLOW_DB_USER}
+      OM_AIRFLOW_DB_PASSWORD: ${OM_AIRFLOW_DB_PASSWORD}
+      OM_DB: ${OM_DB}
+      OM_DB_USER: ${OM_DB_USER}
+      OM_DB_PASSWORD: ${OM_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - datalake
+
+  # ---------------------------------------------------------------------------
+  # MinIO : stockage objet compatible S3
+  # ---------------------------------------------------------------------------
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: dl-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"   # API S3 (boto3, Airflow)
+      - "9001:9001"   # Console web
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - datalake
+
+  # Job one-shot : crée les 4 buckets puis s'arrête (idempotent)
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: dl-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      mc mb --ignore-existing local/raw;
+      mc mb --ignore-existing local/staging;
+      mc mb --ignore-existing local/curated;
+      mc mb --ignore-existing local/archive;
+      echo 'Buckets raw/staging/curated/archive prêts.';
+      "
+    networks:
+      - datalake
+
+  # ---------------------------------------------------------------------------
+  # Airflow métier (init -> migrate DB + crée l'admin, puis webserver + scheduler)
+  # ---------------------------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: dl-airflow-init
+    # On NE surcharge PAS l'entrypoint : celui de l'image officielle injecte une
+    # entrée /etc/passwd pour l'UID arbitraire (group 0), puis déclenche migration
+    # et création de l'admin via ces variables. `airflow version` termine en exit 0.
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+    command: version
+    restart: on-failure
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: dl-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"   # UI Airflow métier
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: dl-airflow-scheduler
+    command: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Conteneur de DEV : VSCode s'y attache (Dev Containers) pour tester/déboguer.
+  # Dans le réseau Docker -> `minio:9000` résout comme pour Airflow : le code
+  # exécuté ici est STRICTEMENT identique à celui exécuté par les DAGs.
+  # ---------------------------------------------------------------------------
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        # UID/GID hôte -> l'utilisateur non-root du conteneur vous appartient,
+        # donc les fichiers créés dans /workspace (= repo) restent à vous.
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+    container_name: dl-dev
+    environment:
+      <<: *minio-env
+      PYTHONPATH: /workspace
+    volumes:
+      - .:/workspace          # repo monté à chaud (édition + debug)
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - datalake
+
+  # ---------------------------------------------------------------------------
+  # OpenMetadata : Elasticsearch + serveur + Airflow d'ingestion dédié
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION:-8.11.4}
+    container_name: dl-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"\\(green\\|yellow\\)\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - datalake
+
+  # --- Migration one-shot : crée/met à jour le schéma OpenMetadata dans Postgres
+  #     AVANT le démarrage du serveur. Sans cette étape -> erreur
+  #     « relation DATABASE_CHANGE_LOG does not exist ». Sort en exit 0.
+  execute-migrate-all:
+    image: docker.getcollate.io/openmetadata/server:${OM_VERSION:-1.5.6}
+    container_name: dl-om-migrate
+    command: "./bootstrap/openmetadata-ops.sh migrate"
+    environment:
+      MIGRATION_LIMIT_PARAM: "1200"
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      DB_USE_SSL: "false"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${OM_DB_USER}
+      DB_USER_PASSWORD: ${OM_DB_PASSWORD}
+      OM_DATABASE: ${OM_DB}
+      SEARCH_TYPE: elasticsearch
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_SCHEME: http
+      PIPELINE_SERVICE_CLIENT_ENDPOINT: http://openmetadata-ingestion:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - datalake
+
+  openmetadata-ingestion:
+    image: docker.getcollate.io/openmetadata/ingestion:${OM_VERSION:-1.5.6}
+    container_name: dl-om-ingestion
+    # Démarrage officiel de l'image d'ingestion (init airflow DB + user + services).
+    # Le CMD par défaut ne convient pas (affiche l'aide et sort en exit 2).
+    entrypoint: /bin/bash
+    command: "/opt/airflow/ingestion_dependency.sh"
+    environment:
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__OPENMETADATA_AIRFLOW_APIS__DAG_GENERATED_CONFIGS: "/opt/airflow/dag_generated_configs"
+      # Base airflow dédiée d'OpenMetadata (Postgres mutualisé). NB: la variable
+      # de mot de passe attendue par cette image est DB_PASSWORD (≠ DB_USER_PASSWORD).
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      AIRFLOW_DB: ${OM_AIRFLOW_DB}
+      DB_USER: ${OM_AIRFLOW_DB_USER}
+      DB_PASSWORD: ${OM_AIRFLOW_DB_PASSWORD}
+      DB_SCHEME: postgresql+psycopg2
+    volumes:
+      - om-ingestion-dags:/opt/airflow/dags
+      - om-ingestion-dag-configs:/opt/airflow/dag_generated_configs
+    ports:
+      - "8082:8080"   # UI Airflow d'OpenMetadata (port hôte décalé pour éviter le conflit avec l'Airflow métier)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - datalake
+
+  openmetadata-server:
+    image: docker.getcollate.io/openmetadata/server:${OM_VERSION:-1.5.6}
+    container_name: dl-om-server
+    environment:
+      # --- Base de données (Postgres mutualisé) ---
+      DB_DRIVER_CLASS: org.postgresql.Driver
+      DB_SCHEME: postgresql
+      DB_USE_SSL: "false"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${OM_DB_USER}
+      DB_USER_PASSWORD: ${OM_DB_PASSWORD}
+      OM_DATABASE: ${OM_DB}
+      # --- Recherche ---
+      SEARCH_TYPE: elasticsearch
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_SCHEME: http
+      # --- Lien vers l'Airflow d'ingestion dédié (auth API basic) ---
+      PIPELINE_SERVICE_CLIENT_ENABLED: "true"
+      PIPELINE_SERVICE_CLIENT_ENDPOINT: http://openmetadata-ingestion:8080
+      SERVER_HOST_API_URL: http://openmetadata-server:8585/api
+      AIRFLOW_USERNAME: admin
+      AIRFLOW_PASSWORD: admin
+    ports:
+      - "8585:8585"   # UI OpenMetadata
+      - "8586:8586"   # port admin/health
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8586/healthcheck"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      execute-migrate-all:
+        condition: service_completed_successfully
+      openmetadata-ingestion:
+        condition: service_started
+    networks:
+      - datalake
+
+# -----------------------------------------------------------------------------
+volumes:
+  postgres-data:
+  minio-data:
+  airflow-logs:
+  es-data:
+  om-ingestion-dags:
+  om-ingestion-dag-configs:
+
+networks:
+  datalake:
+    driver: bridge

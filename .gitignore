@@ -216,3 +216,19 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# =============================================================================
+#  Projet Data Lake IoT
+# =============================================================================
+# Données brutes téléchargées depuis Zenodo (volumineuses — non versionnées).
+# On garde l'arborescence mais pas les CSV (cf. README pour les retélécharger).
+data/**/*.csv
+data/**/*.parquet
+
+# Données persistées localement si bind-mount au lieu de volumes Docker nommés
+minio-data/
+postgres-data/
+
+# Secrets — .env est déjà ignoré plus haut ; on garde explicites les variantes
+.env.*
+!.env.example

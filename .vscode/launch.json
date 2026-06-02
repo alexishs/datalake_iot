@@ -1,0 +1,25 @@
+{
+  // Configurations de débogage (à utiliser DANS le dev container).
+  // Le code y tourne dans le réseau Docker : `minio:9000` résout comme dans Airflow.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python : fichier courant",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "/workspace",
+      "justMyCode": false
+    },
+    {
+      "name": "Python : module datalake (smoke test MinIO)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "datalake",
+      "console": "integratedTerminal",
+      "cwd": "/workspace",
+      "justMyCode": false
+    }
+  ]
+}

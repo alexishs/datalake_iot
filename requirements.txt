@@ -1,0 +1,39 @@
+# =============================================================================
+#  Dépendances Python LOCALES (venv hôte, Python 3.12)
+# =============================================================================
+#  Périmètre : ce qu'on lance soi-même sur la machine.
+#    - exploration des CSV (Jour 1, C18)
+#    - script d'upload MinIO + vérification d'intégrité (Jour 2, C19)
+#    - écriture / lint des DAGs
+#  Airflow, OpenMetadata et leur Python tournent DANS Docker -> pas ici.
+#
+#  Install :  source .venv/bin/activate && pip install -r requirements.txt
+# =============================================================================
+
+# --- Accès MinIO (API S3) ---
+boto3~=1.35            # client S3 (upload, list, get)
+botocore~=1.35         # dépendance de boto3 (épinglée pour cohérence)
+
+# --- Exploration & manipulation des données ---
+pandas~=2.2            # lecture/analyse des CSV, comparaison de schémas
+pyarrow~=18.0          # backend rapide + export Parquet (staging/curated)
+
+# --- Configuration ---
+python-dotenv~=1.0     # charge .env dans les scripts locaux
+
+# --- Qualité de code (dev) ---
+ruff~=0.8              # linter + formateur
+
+# -----------------------------------------------------------------------------
+#  OPTIONNEL — développement local des DAGs avec autocomplétion Airflow.
+#  NE PAS décommenter tel quel : Airflow exige son "constraints file" sous peine
+#  de casser ses dépendances. Installer plutôt ainsi (hors requirements.txt) :
+#
+#    AIRFLOW_VERSION=2.9.3
+#    PYTHON_VERSION=3.12
+#    CONSTRAINT="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+#    pip install "apache-airflow==${AIRFLOW_VERSION}" --constraint "${CONSTRAINT}"
+#
+#  ⚠️ Ne PAS installer le paquet `openmetadata-ingestion` dans ce venv 3.12 :
+#     il tourne déjà dans le conteneur openmetadata-ingestion.
+# -----------------------------------------------------------------------------
