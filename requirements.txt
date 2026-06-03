@@ -24,6 +24,12 @@ python-dotenv~=1.0     # charge .env dans les scripts locaux
 # --- Qualité de code (dev) ---
 ruff~=0.8              # linter + formateur
 
+# --- Notebook (exploration locale, Jour 1) ---
+# Le notebook d'exploration ne touche PAS la stack Docker (simple analyse de CSV
+# locaux) : il tourne sur ce venv hôte, pas dans le conteneur dev. ipykernel
+# fournit le noyau Jupyter utilisé par VSCode.
+ipykernel~=7.2
+
 # -----------------------------------------------------------------------------
 #  OPTIONNEL — développement local des DAGs avec autocomplétion Airflow.
 #  NE PAS décommenter tel quel : Airflow exige son "constraints file" sous peine

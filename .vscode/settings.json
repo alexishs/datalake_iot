@@ -1,0 +1,5 @@
+{
+  // Démarrer les notebooks à la racine du dépôt : `import datalake...` et les
+  // chemins relatifs `data/...` se résolvent correctement.
+  "jupyter.notebookFileRoot": "${workspaceFolder}"
+}

@@ -6,7 +6,7 @@
 
 En tant que data engineer, concevoir l'architecture d'un data lake, déployer l'infrastructure de stockage objet, mettre en place les pipelines d'ingestion, cataloguer les données et implémenter les règles de gouvernance et de contrôle d'accès.
 
-Leurs données sont aujourd'hui stockées en vrac, sans structure ni gouvernance. La DSI te confie la mission de concevoir et déployer un data lake moderne pour centraliser, documenter et sécuriser l'ensemble de ces flux, en vue d'un futur projet de maintenance prédictive.
+Leurs données sont aujourd'hui stockées en vrac, sans structure ni gouvernance. La DSI vous confie la mission de concevoir et déployer un data lake moderne pour centraliser, documenter et sécuriser l'ensemble de ces flux, en vue d'un futur projet de maintenance prédictive.
 
 Ce client collecte en continu des données issues de plusieurs lignes de production instrumentées. Ces données sont actuellement dispersées et hétérogènes, ce qui complique leur exploitation et limite leur valeur métier. La mise en place d'un datalake permet de centraliser l'ensemble des données dans une plateforme unique, capable de stocker aussi bien les données brutes que les données transformées. Une organisation structurée des données facilite leur découverte, leur traçabilité, leur sécurisation et leur réutilisation par les différentes parties prenantes.
 
@@ -73,7 +73,7 @@ Durée : 2 semaines, 8 jours. Technos : MinIO Community (Docker), OpenMetadata, 
 
 - Créer 3 comptes de service avec policies MinIO différenciées :
   - `data-analyst` → lecture seule sur `curated/`
-  - `data-engineer` → lecture/écriture sur `raw/` et `staging/`
+  - `data-engineer` → lecture/écriture sur `curated/`, `raw/` et `staging/`
   - `admin` → tous droits
 - Activer le chiffrement SSE-S3 sur les buckets contenant des données de production (potentiellement sensibles industriellement)
 - Activer les logs d'audit MinIO et analyser une session d'accès
