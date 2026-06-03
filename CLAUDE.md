@@ -58,7 +58,7 @@ Partitionnement raw imposé : `raw/production_lines/lineX/year=YYYY/month=MM/...
 3. **Intégrité** : vérifier les fichiers ingérés (hash MD5).
 4. **Sécurité & gouvernance** (C21) : 3 rôles strictement différenciés
    (`data-analyst` lecture seule sur `curated/`, `data-engineer` lecture/écriture sur
-   `raw/` + `staging/`, `admin` tous droits), chiffrement SSE-S3, logs d'audit.
+   `raw/` + `staging/` + `curated/`, `admin` tous droits), chiffrement SSE-S3, logs d'audit.
 5. **Pas de secrets en clair commités** : credentials via variables d'environnement / `.env`
    (non versionné). Les identifiants `minioadmin/minioadmin` de l'énoncé sont des valeurs de
    démo locale uniquement.
