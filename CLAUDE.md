@@ -64,10 +64,14 @@ Partitionnement raw imposé : `raw/production_lines/lineX/year=YYYY/month=MM/...
    démo locale uniquement.
 6. **Documenter au fil de l'eau** (exigé) : chaque livrable a une trace écrite produite au moment
    où le travail est fait (README, procédure d'intégration, doc de gouvernance, politique ILM).
-   - Le **rapport final** (≥ 5 pages) est un livrable de **fin de Jour 8**, *pas* une obligation de
-     mise à jour continue dans l'énoncé. Mais il est **fortement recommandé** de l'alimenter au fur
-     et à mesure (notes, captures, justifications de choix) pour éviter de tout rédiger le dernier
-     jour. À chaque étape importante, penser à consigner le *quoi* et le *pourquoi* dans `rapport/`.
+   - **Mettre à jour le rapport à la fin de chaque « jour » de l'énoncé** (Jour 1, Jour 2,
+     Jours 3-4, Jour 5, Jours 6-7) : consigner dans `rapport/rapport.md` les **activités** réalisées,
+     les **notions** abordées et les **choix justifiés** (le *quoi* et le *pourquoi*).
+   - *(L'énoncé n'exige formellement que le rapport final de fin de Jour 8 ; cette cadence — une mise
+     à jour par « jour » — est une **règle de travail adoptée pour ce projet**, afin de ne pas tout
+     rédiger le dernier jour.)*
+   - Le **rapport final** (≥ 5 pages, Jour 8) est la **consolidation et la mise au propre** de ces
+     mises à jour, exporté en PDF.
 7. **Langue** : documentation et rapport en français. **Vouvoiement obligatoire** dans tous les
    fichiers (README, docs, commentaires de code, rapport) comme dans les échanges — jamais de
    tutoiement.

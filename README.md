@@ -5,6 +5,29 @@ de capteurs issues de 5 lignes de production, en vue d'un futur projet de
 maintenance prédictive. Projet pédagogique — le brief complet est dans
 [ennonce.md](ennonce.md), les règles de travail dans [CLAUDE.md](CLAUDE.md).
 
+## Livrables & progression (C18–C21)
+
+Index des livrables par compétence / jour. ✅ produit · ◐ en cours · ⏳ à venir.
+
+| Étape | Livrable | Fichier(s) | Statut |
+|---|---|---|---|
+| **C18 · J1** — Architecture | Exploration des 5 lignes (volumétrie, schémas, hétérogénéités) | [notebooks/exploration_jour1.ipynb](notebooks/exploration_jour1.ipynb) | ✅ |
+| **C18 · J1** | Dossier d'architecture + schéma annoté (Mermaid) | [docs/architecture.md](docs/architecture.md) | ✅ |
+| **C18 · J1** | Export PDF du schéma (rendu formel) | `docs/architecture.pdf` | ⏳ |
+| **C19 · J2** — Intégration | Stack Docker (MinIO + buckets, Airflow, OpenMetadata) | [compose.yaml](compose.yaml), [init-scripts/](init-scripts/) | ✅ |
+| **C19 · J2** | Téléchargement des sources (Zenodo + MD5) | [datalake/download.py](datalake/download.py) | ✅ |
+| **C19 · J2** | Script d'upload vers `raw/` + vérification MD5 | `datalake/` *(à créer)* | ⏳ |
+| **C19 · J3-4** | 3 DAGs : ingestion → harmonisation → consolidation | [dags/](dags/) *(à créer)* | ⏳ |
+| **C19 · J3-4** | Procédure d'intégration | ce README + [docs/architecture.md](docs/architecture.md) | ◐ |
+| **C20 · J5** — Catalogue | 5 fiches OpenMetadata + politique ILM | `docs/` + captures *(à créer)* | ⏳ |
+| **C21 · J6-7** — Gouvernance | Matrice des droits + politique de gouvernance | `docs/` *(à créer)* | ⏳ |
+| **J8** — Restitution | Rapport ≥ 5 pages (alimenté à la fin de chaque jour) | [rapport/rapport.md](rapport/rapport.md) | ◐ |
+
+Le **package métier** [`datalake/`](datalake/) (réutilisé par le conteneur dev *et* les DAGs) :
+[`config.py`](datalake/config.py) (configuration via env), [`storage.py`](datalake/storage.py)
+(client MinIO + MD5), [`download.py`](datalake/download.py) (sources Zenodo),
+[`explore.py`](datalake/explore.py) (analyse du Jour 1).
+
 ## Architecture en couches
 
 ```
@@ -13,6 +36,10 @@ staging/  ← données nettoyées, schéma harmonisé
 curated/  ← données prêtes à l'analyse
 archive/  ← données expirées (règle ILM MinIO)
 ```
+
+> Modèle détaillé, justifications (volumétrie/fréquence), partitionnement (raw au **mois**,
+> staging/curated au **jour**), schéma annoté et contrat d'implémentation :
+> **[docs/architecture.md](docs/architecture.md)**.
 
 ## La stack
 
@@ -220,8 +247,9 @@ Dockerfile.dev       image du conteneur de dev
 init-scripts/        init Postgres mutualisé (3 bases isolées)
 datalake/            PACKAGE métier (boto3, ingestion, harmonisation)
 dags/                DAGs Airflow (appellent datalake)
+notebooks/           exploration des données (Jour 1, C18)
 data/                CSV bruts (non versionnés)
-docs/                architecture, gouvernance, ILM, captures
+docs/                architecture.md (C18), gouvernance/ILM (C20/C21), captures
 rapport/             rapport final (≥ 5 pages)
 ```
 
