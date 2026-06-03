@@ -1,8 +1,8 @@
 # Dossier d'architecture — Data Lake IoT industriel (C18)
 
 > Modélisation de l'architecture en couches et justification des choix techniques.
-> Le schéma visuel annoté est dans [architecture.drawio](architecture.drawio) (export
-> [architecture.png](architecture.png)). L'analyse des données qui fonde ces choix est
+> Le **schéma technique annoté** est le diagramme **Mermaid** du §2 (rendu nativement sur GitHub ;
+> export `architecture.pdf` pour le livrable formel). L'analyse des données qui fonde ces choix est
 > dans [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
 
 ## 1. Objectif & périmètre
@@ -16,11 +16,34 @@ couvrant **janvier→mai 2025** (un mois distinct par ligne), **~1 % d'anomalies
 
 ## 2. Vue d'ensemble
 
-```
-[5 CSV Zenodo] ──download + MD5──▶ raw/ ──harmonisation──▶ staging/ ──consolidation──▶ curated/
-                                    │                                                      │
-                                    └──────────────── ILM (180 j) ──────────▶ archive/ ◀───┘
-   Orchestration : Apache Airflow (2 DAGs)   ·   Stockage : MinIO (S3)   ·   Catalogue : OpenMetadata
+```mermaid
+flowchart LR
+    CSV["5 CSV sources<br/>Zenodo · Line A→E"]
+
+    subgraph MINIO["MinIO — stockage objet S3 · chiffrement SSE-S3"]
+        direction LR
+        RAW[("raw/<br/>CSV tel quel<br/>partition : mois · MD5")]
+        STG[("staging/<br/>Parquet harmonisé<br/>partition : jour")]
+        CUR[("curated/<br/>Parquet unifié (+ line)<br/>partition : jour")]
+        ARC[("archive/<br/>expirées (ILM)")]
+        RAW -->|"DAG 2 harmonisation<br/>fil de l'eau : 1 jour"| STG
+        STG -->|"DAG 3 consolidation<br/>(hors énoncé, assumé)"| CUR
+        RAW -.->|"ILM 180 j / 2 ans"| ARC
+        STG -.-> ARC
+        CUR -.-> ARC
+    end
+
+    CSV -->|"ingestion : script boto3 +<br/>DAG 1 + MD5 · partition mois"| RAW
+
+    AF["Apache Airflow"] -.->|"orchestre DAG 1·2·3"| MINIO
+    OM["OpenMetadata<br/>catalogue · gouvernance"] -.->|catalogue| MINIO
+    ANALYST(["data-analyst"]) -.->|lecture seule| CUR
+    ENG(["data-engineer"]) -.->|"lecture / écriture"| RAW
+    ENG -.-> STG
+    ENG -.-> CUR
+
+    classDef bucket fill:#eaf2ff,stroke:#4170b8,color:#13315c;
+    class RAW,STG,CUR,ARC bucket;
 ```
 
 - **Stockage objet** : MinIO (compatible S3), 4 buckets = 4 couches.
@@ -185,6 +208,11 @@ règle 16). Les colonnes de partition `line`/`year`/`month` dérivent de cette c
   flux / chunks » du brief, mais le **choix du jour** (granularité aval + cadence) **n'est pas
   imposé par l'énoncé** : **décision assumée** pour un flux cohérent et des requêtes fines.
 
+- **Schéma en Mermaid** (plutôt que draw.io, *suggéré* par le brief) : **diagramme-as-code**,
+  versionnable et *diffable*, **rendu nativement sur GitHub**, cohérent avec l'approche reproductible
+  du dépôt. Le livrable « PDF / draw.io » est satisfait par un **export PDF**. *(Choix au titre de la
+  « justification des choix » du C18 ; draw.io reste possible si un rendu « poster » est exigé.)*
+
 **Hypothèses à lever** (cf. notebook) :
 - **Fuseau horaire** du `timestamp` : non précisé par la source → supposé **UTC**, à documenter.
 - **Écart doc ↔ données** sur le taux d'anomalies (LineE annoncé 0 %, mesuré 0,5 %) : la donnée
@@ -234,8 +262,10 @@ actionnable**, source de référence pour les DAGs (Jours 3‑4).
 16. L'ingestion doit être **relançable sans créer de doublons** : clé de **dédoublonnage / fusion = `(line, timestamp)`** (clé naturelle, cf. §6) ; chemins/objets **déterministes**, écrasement contrôlé.
 17. Tout réglage (identifiant de dépôt, chemins, secrets) provient de la **configuration / variables d'environnement**, jamais de valeurs en dur.
 
-## 13. Prochaine étape
+## 13. Livrable visuel
 
-Produire le **schéma technique annoté** [architecture.drawio](architecture.drawio) reprenant
-le flux (sources → raw → staging → curated → archive), les briques (MinIO, Airflow, OpenMetadata),
-et les annotations (partitions, formats, MD5, SSE-S3, ILM, rôles d'accès), exploitable par un tiers.
+Le **schéma technique annoté** est le diagramme **Mermaid** du §2 : il reprend le flux
+(sources → raw → staging → curated → archive), les briques (MinIO, Airflow, OpenMetadata) et les
+annotations (partitions mois/jour, formats, MD5, SSE-S3, ILM, rôles d'accès). Il est **rendu
+nativement sur GitHub** et exploitable par un tiers. Pour le rendu formel : **export `architecture.pdf`**
+(via l'extension Mermaid de VSCode ou `mermaid-cli`).
