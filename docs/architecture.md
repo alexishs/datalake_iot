@@ -20,7 +20,7 @@ flowchart LR
         STG[("staging/<br/>Parquet harmonisé<br/>partition : jour")]
         CUR[("curated/<br/>Parquet unifié (+ line)<br/>partition : jour")]
         ARC[("archive/<br/>expirées (ILM)")]
-        RAW -->|"DAG 2 harmonisation<br/>fil de l'eau : 1 jour"| STG
+        RAW -->|"DAG 2 harmonisation<br/>fil de l'eau : 1 jour / min"| STG
         STG -->|"DAG 3 consolidation<br/>(hors énoncé, assumé)"| CUR
         RAW -.->|"ILM 180 j / 2 ans"| ARC
         STG -.-> ARC
@@ -59,6 +59,7 @@ flowchart LR
 - **Fichier copié tel quel** dans sa partition : `raw/production_lines/lineX/year=YYYY/month=MM/<fichier>.csv`. `line` vient du nom de fichier ; `year`/`month` sont déterminés à partir des **données** (le mois du `timestamp`). Un **fichier source couvre systématiquement un seul mois** → un fichier = une partition, déposé **byte-identique** à la source. Aucune transformation ici (typage et harmonisation : en `staging`).
 - **Intégrité** : on vérifie que le **MD5 du fichier déposé** est **identique à celui de la source** (exigence du brief, Jour 2) — garanti par la copie byte-identique.
 - **Garde-fou impératif** : vérifier que tous les `timestamp` du fichier tombent dans le **même mois** ; **sinon, échec de l'ingestion** (un fichier multi-mois invaliderait la copie en une seule partition → risque de mauvaise affectation silencieuse).
+- **(Ré)import idempotent & cascade** : « jamais modifiées » signifie **aucune transformation** (pas « jamais remplacées »). La décision repose sur le **MD5** : si le fichier local diffère de l'objet `raw` (ou est absent), on **vide la partition du mois en `raw` *et* la même `(ligne, mois)` en `staging`**, puis on réécrit `raw` ; si le MD5 est identique, on ne touche à rien. La purge de `staging` déclenche son **recalcul automatique** par le DAG aval (cf. §3.2, filigrane).
 
 ### 3.2 `staging/` — harmonisation
 Transformations appliquées (cf. schéma cible §6 et contrat §12) :
@@ -67,7 +68,7 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 - `elapsed_time` rendu **nullable** (absent des lignes C/D/E → **`NULL`**) ;
 - schéma de sortie **identique pour les 5 lignes** (cf. §6).
 
-**Partitionnement au jour** (≠ `raw` au mois) : `staging/production_lines/lineX/year=YYYY/month=MM/day=DD/`. **Traitement au fil de l'eau** : le DAG `raw → staging` traite **un jour à la fois** (planifié quotidiennement) → **simule un flux** ; LineA (~7 jours de données) ⇒ ~7 exécutions, etc. ⚠️ La **granularité jour** (partition + cadence) **n'est pas imposée par l'énoncé** — décision assumée (cf. §11).
+**Partitionnement au jour** (≠ `raw` au mois) : `staging/production_lines/lineX/year=YYYY/month=MM/day=DD/`. **Traitement au fil de l'eau (simulation de flux)** : le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une seule journée par exécution** — la journée est choisie par un **filigrane** (= **dernier jour présent en `staging`** ; on prend le jour **suivant** disponible en `raw`), **et non** par la date d'exécution Airflow. Une nouvelle « journée » est donc ingérée ~chaque minute, ce qui **simule réellement un flux** (et non un import quotidien « en un bloc »). LineA (~7 jours) ⇒ ~7 exécutions. Comme l'ingestion **vide `staging`** pour une `(ligne, mois)` (cascade §3.1), le filigrane recule et les jours invalidés sont **recalculés automatiquement** — DAGs indépendants. ⚠️ La **granularité jour**, la **cadence (1 min)** et le **filigrane** ne sont **pas imposés par l'énoncé** — décisions assumées (cf. §11).
 
 ### 3.3 `curated/` — prêt à l'analyse
 - **Table unifiée** des 5 lignes, avec colonne `line` pour distinguer la provenance.
@@ -140,7 +141,7 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 - **Pourquoi ce partitionnement (deux granularités) ?** `raw` au **mois** (`lineX/year/month`) : imposé par le brief et permet de **déposer les fichiers tels quels** (+ MD5), chaque fichier couvrant un mois. `staging`/`curated` au **jour** (`…/day=DD/`) : granularité fine alignée sur le **traitement au fil de l'eau** (un jour à la fois) et les **requêtes journalières** ; permet l'**élagage** précis et colle au futur flux continu. *(Granularité aval = décision, cf. §11.)*
 - **Pourquoi MinIO ?** Stockage objet **compatible S3** (donc `boto3` standard), déployable localement, avec policies, chiffrement et ILM intégrés.
 - **Pourquoi CSV→Parquet ?** CSV garde la source intacte en `raw` ; Parquet en aval apporte typage, compression et lecture colonnaire — essentiels dès que le volume croît et pour le ML.
-- **Pourquoi un traitement au fil de l'eau (jour par jour) ?** Le DAG `raw → staging` traite **un jour à la fois** (planifié quotidiennement) pour **simuler un flux** temps réel — c'est notre réalisation de l'exigence « traiter LineA par chunks pour simuler un flux » du brief. LineA (~7 jours de données) ⇒ ~7 exécutions journalières.
+- **Pourquoi un traitement au fil de l'eau (jour par jour) ?** Le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une journée par exécution** (journée choisie par le **filigrane** = dernier jour présent en `staging`) → **simule un flux** temps réel, réalisant l'exigence « traiter LineA par chunks pour simuler un flux ». Un import quotidien « en un bloc » serait plus simple mais **ne simulerait pas** le flux ; d'où la **cadence minute + une journée à la fois**. LineA (~7 jours) ⇒ ~7 exécutions (≈ 7 minutes).
 
 ## 11. Décisions retenues & hypothèses ouvertes
 
@@ -149,7 +150,7 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 - `curated` = **table unifiée** des 5 lignes avec colonne `line` — cohérent avec l'objectif maintenance prédictive (historique multi-équipements homogène).
 - `raw` = **copie des fichiers source tels quels** (byte-identique) dans leur partition `lineX/year/month`, avec **vérification MD5** du fichier déposé — conforme au brief (« uploader les CSV » + « intégrité des fichiers déposés », Jour 2). Repose sur le fait **documenté** qu'un fichier source couvre **un seul mois** (garde-fou **impératif** : échec si le mois n'est pas unique).
 - **3ᵉ DAG `staging → curated`** (« consolidation ») : **non requis par l'énoncé** (2 DAGs demandés : ingestion brute + harmonisation). **Décision assumée** pour **rester cohérent avec la gestion du flux** déjà prévue en amont — *une couche = un DAG dédié* → pipeline homogène, traçable et idempotent de `raw` jusqu'à `curated`.
-- **Partitionnement à deux granularités + traitement au fil de l'eau** : `raw` au **mois** (pour déposer les fichiers tels quels + MD5) ; `staging`/`curated` au **jour** (`…/day=DD/`), et le DAG `raw → staging` traite **un jour à la fois**. Ce dispositif **réalise** l'exigence « simuler un flux / chunks » du brief, mais le **choix du jour** (granularité aval + cadence) **n'est pas imposé par l'énoncé** : **décision assumée** pour un flux cohérent et des requêtes fines.
+- **Granularités, cadence, filigrane & cascade** : `raw` au **mois** (dépôt des fichiers tels quels + MD5) ; `staging`/`curated` au **jour** (`…/day=DD/`). Le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une journée par exécution**, la journée étant choisie par un **filigrane** (dernier jour présent en `staging`). Un (ré)import en `raw` **vide la même `(ligne, mois)` en `staging`** (cascade), ce qui — via le filigrane — déclenche le **recalcul automatique**. L'ensemble **réalise** l'exigence « simuler un flux / chunks » du brief ; le **choix précis** (cadence minute, granularité jour, filigrane, cascade) **n'est pas imposé** par l'énoncé : **décisions assumées** pour un flux réaliste, **idempotent et auto-réparant**, avec des **DAGs indépendants**.
 
 - **Schéma en Mermaid** (plutôt que draw.io, *suggéré* par le brief) : **diagramme-as-code**, versionnable et *diffable*, **rendu nativement sur GitHub**, cohérent avec l'approche reproductible du dépôt. Le livrable « PDF / draw.io » est satisfait par un **export PDF**. *(Choix au titre de la « justification des choix » du C18 ; draw.io reste possible si un rendu « poster » est exigé.)*
 
@@ -179,7 +180,7 @@ Contrat que doit respecter le script/DAG d'ingestion (`raw/`) et d'harmonisation
 9. Chemin de dépôt : `raw/production_lines/{line}/year={YYYY}/month={MM}/<fichier>.csv`.
 10. `line` (`lineA`…`lineE`) se déduit du **nom de fichier** (motif `Line([A-E])`) — un fichier = une ligne de production.
 11. **`year` / `month` se déduisent des données** (le mois du `timestamp`), pas du nom de fichier. Un **fichier source couvre systématiquement un seul mois** → **un fichier = une partition**.
-12. **Le fichier est copié tel quel** (byte-identique) dans sa partition — **pas de ré-écriture ni de scission** en `raw`. Conforme au brief (« uploader les CSV » + « vérifier l'intégrité des fichiers déposés »). **Garde-fou impératif** : vérifier que tous les `timestamp` du fichier tombent dans le **même mois** ; **sinon, échouer l'ingestion** (fichier source non conforme à l'hypothèse de partitionnement).
+12. **Le fichier est copié tel quel** (byte-identique) dans sa partition — **pas de transformation ni de scission** en `raw`. Conforme au brief (« uploader les CSV » + « vérifier l'intégrité des fichiers déposés »). **Garde-fou impératif** : tous les `timestamp` du fichier dans le **même mois**, sinon **échec**. **(Ré)import idempotent (MD5) + cascade** : si le MD5 local diffère de l'objet `raw` (ou absent) → **vider la partition du mois en `raw` ET la même `(ligne, mois)` en `staging`**, puis réécrire `raw` ; si MD5 identique → ne rien faire. La purge de `staging` force son recalcul par le DAG aval (règle 14).
 
 > **Note (raw vs aval) :** `raw` = **copie du fichier brut**, partitionné au **mois** (aucune transformation). `staging`/`curated` sont partitionnés au **jour** (`…/day=DD/`, `day` dérivé du `timestamp`) et le DAG `raw → staging` traite **un jour à la fois** (fil de l'eau, cf. §11). Le **typage et l'harmonisation** (règles 4‑8) n'interviennent qu'en `staging`.
 
@@ -187,7 +188,7 @@ Contrat que doit respecter le script/DAG d'ingestion (`raw/`) et d'harmonisation
 13. **Intégrité (MD5)** : au **téléchargement** (fidélité Zenodo → `data/`) **et** sur le **fichier déposé** en `raw` — le MD5 du fichier déposé doit être **identique à celui de la source** (copie byte-identique). Exigence directe du brief (Jour 2).
 
 ### Traitement au fil de l'eau (simulation de flux)
-14. Le DAG `raw → staging` traite **un jour à la fois** (planifié quotidiennement) → **simule un flux** temps réel. C'est la réalisation de l'exigence « traiter LineA par chunks pour simuler un flux » du brief ; LineA (~7 jours) ⇒ ~7 exécutions. *(Granularité jour = décision hors énoncé, cf. §11.)*
+14. Le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une seule journée par exécution** → **simule un flux** temps réel (réalise l'exigence « chunks » du brief). La journée traitée est donnée par un **filigrane** (= dernier jour présent en `staging`, on prend le suivant disponible en `raw`), **non** par la date d'exécution Airflow. Conjugué à la **cascade** (règle 12), ce filigrane rend le pipeline **auto-réparant** (vider `staging` ⇒ recalcul). LineA (~7 jours) ⇒ ~7 exécutions. *(Cadence minute, filigrane et granularité jour = décisions hors énoncé, cf. §11.)*
 15. Chaque exécution alimente la partition `…/day=DD/` de `staging` ; **idempotente par jour** (ré-exécuter un jour réécrit sa partition, cf. règle 16).
 
 ### Idempotence & reproductibilité

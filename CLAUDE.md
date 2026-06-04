@@ -75,6 +75,9 @@ Partitionnement raw imposé : `raw/production_lines/lineX/year=YYYY/month=MM/...
 7. **Langue** : documentation et rapport en français. **Vouvoiement obligatoire** dans tous les
    fichiers (README, docs, commentaires de code, rapport) comme dans les échanges — jamais de
    tutoiement.
+8. **Manipulation de données : Polars** (et **non** pandas). Choix retenu pour ce projet :
+   Arrow-natif, rapide, `null` distinct de `NaN`, lecture/écriture Parquet native. Ne pas
+   réintroduire pandas (ni le tirer indirectement comme dépendance).
 
 ## Organisation du dépôt (cible)
 
