@@ -22,6 +22,7 @@ python-dotenv~=1.0     # charge .env dans les scripts locaux
 
 # --- Qualité de code (dev) ---
 ruff~=0.8              # linter + formateur
+pytest~=8.3            # tests unitaires (faux client S3, pur Python)
 
 # --- Notebook (exploration locale, Jour 1) ---
 # Le notebook d'exploration ne touche PAS la stack Docker (simple analyse de CSV
