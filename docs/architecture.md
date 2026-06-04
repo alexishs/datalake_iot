@@ -131,9 +131,9 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 
 ## 9. Sécurité & gouvernance (aperçu — détail en C21)
 
-- **3 rôles différenciés** : `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/` + `staging/` + `curated/`), `admin` (tous droits).
-- **Chiffrement SSE-S3** sur les buckets de production.
-- **Logs d'audit** MinIO activés et analysés.
+- **3 rôles différenciés** : `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/` + `staging/` + `curated/`), `admin` (tous droits). **Policies initiales déjà en place** (C19) : créées par le job `minio-init` via des policies IAM personnalisées restreintes par bucket — voir [init-scripts/minio/](../init-scripts/minio/) (`setup.sh` + `policies/*.json`).
+- **Chiffrement SSE-S3** sur les buckets de production (C21).
+- **Logs d'audit** MinIO activés et analysés (C21).
 
 ## 10. Justification des choix (volumétrie & fréquence)
 

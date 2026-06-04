@@ -112,22 +112,26 @@ services:
     networks:
       - datalake
 
-  # Job one-shot : crée les 4 buckets puis s'arrête (idempotent)
+  # Job one-shot : crée les buckets + comptes de service & policies (idempotent)
   minio-init:
     image: quay.io/minio/mc:latest
     container_name: dl-minio-init
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
-      mc mb --ignore-existing local/raw;
-      mc mb --ignore-existing local/staging;
-      mc mb --ignore-existing local/curated;
-      mc mb --ignore-existing local/archive;
-      echo 'Buckets raw/staging/curated/archive prêts.';
-      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Comptes de service aux droits différenciés par bucket (cf. setup.sh)
+      MINIO_ANALYST_USER: ${MINIO_ANALYST_USER}
+      MINIO_ANALYST_PASSWORD: ${MINIO_ANALYST_PASSWORD}
+      MINIO_ENGINEER_USER: ${MINIO_ENGINEER_USER}
+      MINIO_ENGINEER_PASSWORD: ${MINIO_ENGINEER_PASSWORD}
+      MINIO_ADMIN_USER: ${MINIO_ADMIN_USER}
+      MINIO_ADMIN_PASSWORD: ${MINIO_ADMIN_PASSWORD}
+    volumes:
+      - ./init-scripts/minio:/opt/minio-init:ro
+    entrypoint: ["/bin/sh", "/opt/minio-init/setup.sh"]
     networks:
       - datalake
 

@@ -40,7 +40,7 @@ Tout est conteneurisé via Docker Compose. Trois briques fonctionnelles + une ba
 | Service | Rôle | Accès hôte |
 |---|---|---|
 | **minio** | Stockage objet compatible S3 — le cœur du data lake | API `localhost:9000`, console `localhost:9001` |
-| **minio-init** | Job jetable : crée les buckets `raw`/`staging`/`curated`/`archive` | — |
+| **minio-init** | Job jetable : crée les buckets `raw`/`staging`/`curated`/`archive` **+ les comptes de service et leurs policies** (droits par bucket) | — |
 | **postgres** | Base **mutualisée** : 3 bases isolées (`airflow`, `om_airflow`, `openmetadata`) | `localhost:5432` |
 | **airflow-webserver / -scheduler / -init** | **Airflow métier** : orchestre les DAGs d'ingestion et d'harmonisation | UI `localhost:8080` |
 | **elasticsearch** | Index de recherche requis par OpenMetadata | `localhost:9200` |
@@ -117,6 +117,18 @@ docker compose ps
 | Console MinIO | http://localhost:9001 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | Airflow métier | http://localhost:8080 | `AIRFLOW_ADMIN_USER` / `AIRFLOW_ADMIN_PASSWORD` |
 | OpenMetadata | http://localhost:8585 | `admin@open-metadata.org` / `admin` |
+
+### Comptes de service MinIO & droits par bucket
+
+Le job `minio-init` ([init-scripts/minio/](init-scripts/minio/)) crée, en plus des buckets, 3 comptes aux droits différenciés (policies IAM **personnalisées**, restreintes par bucket — les policies intégrées de MinIO porteraient sur *tous* les buckets). Mots de passe via `.env`.
+
+| Compte | `raw/` | `staging/` | `curated/` | `archive/` |
+|---|---|---|---|---|
+| `data-analyst` | — | — | **lecture** | — |
+| `data-engineer` | lecture/écriture | lecture/écriture | lecture/écriture | — |
+| `datalake-admin` | tous droits | tous droits | tous droits | tous droits |
+
+> Étape C19 (« policies d'accès initiales selon bucket »). Le chiffrement SSE-S3, les logs d'audit et la matrice de gouvernance écrite relèvent du C21. `archive/` n'est attribué à aucun rôle (géré par l'ILM).
 
 ## Exécution du code Python
 

@@ -57,13 +57,17 @@ Architecture en couches d'un data lake ; partitionnement (style Hive) et son lie
 
 **Ingestion `data/` → `raw/`** : module réutilisable `datalake/ingestion.py` (appelé par le CLI `python -m datalake.ingestion` et, à terme, par le DAG d'ingestion) — dépôt byte-identique, partition au mois, **vérification MD5** (ETag), **idempotence** (skip si MD5 identique) et **cascade** d'invalidation de `staging`. Mécanique mutualisée via `datalake/runner.py`. *(Buckets, upload boto3, MD5 = exigences Jour 2 ✅ ; DAGs = Jours 3-4.)*
 
+**Policies d'accès par bucket** : le job `minio-init` crée 3 comptes de service aux droits différenciés au moyen de **policies IAM personnalisées** (restreintes à des ARN de buckets précis, là où les policies intégrées de MinIO porteraient sur *tous* les buckets) — `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/`+`staging/`+`curated/`), `datalake-admin` (tous droits). Droits **vérifiés** (un compte ne peut agir hors de son périmètre). Script et JSON versionnés dans [init-scripts/minio/](../init-scripts/minio/). *(Exigence Jour 2 « policies d'accès initiales selon bucket » ✅ ; SSE-S3, logs d'audit et matrice de gouvernance écrite = C21.)*
+
 ## 4. C20 — Catalogue & cycle de vie (Jour 5)
 
 *(À compléter : connexion OpenMetadata ↔ MinIO, 5 fiches métadonnées, politique ILM 180 j / 2 ans.)*
 
 ## 5. C21 — Sécurité & gouvernance (Jours 6-7)
 
-*(À compléter : 3 rôles différenciés, chiffrement SSE-S3, logs d'audit, politique de gouvernance.)*
+**Comptes & droits — déjà réalisés (anticipés dès le C19).** Les 3 comptes de service et leurs droits différenciés ont été gérés **en une seule fois**, avec les policies d'accès par bucket (cf. §3) : `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/`+`staging/`+`curated/`), `datalake-admin` (tous droits). La **gestion des comptes attendue au C21 est donc faite** — droits vérifiés (un compte ne peut agir hors de son périmètre) et versionnés dans [init-scripts/minio/](../init-scripts/minio/), donc reproductibles par un tiers.
+
+*(Reste à compléter au C21 : chiffrement **SSE-S3** sur les buckets de production, activation et **analyse des logs d'audit** MinIO, et rédaction de la **politique de gouvernance** — matrice « qui accède à quoi, sous quelles conditions, avec quelles responsabilités ».)*
 
 ## 6. Notions, difficultés & auto-évaluation
 
