@@ -11,6 +11,15 @@ production de code « clé en main ». Expliquer le *pourquoi* des choix techniq
 options et leurs compromis, et laisser l'apprenant comprendre chaque étape. Ne pas survoler les
 notions : c'est l'occasion de les apprendre.
 
+## Documents de référence
+
+Quatre documents structurent le projet — s'y reporter en priorité (et les tenir à jour) :
+
+- [ennonce.md](ennonce.md) — le **brief** (énoncé E7) ; **à lire systématiquement**, il fait foi (ne pas en modifier le fond).
+- [README.md](README.md) — **installation et utilisation** : stack Docker, reproduction de l'environnement, exécution du code Python.
+- [docs/architecture.md](docs/architecture.md) — **principales spécifications** : architecture en couches, partitionnement, schéma cible et contrat d'implémentation (C18).
+- [rapport/rapport.md](rapport/rapport.md) — **synthèse globale** de ce qui est réalisé, alimentée à la fin de chaque « jour » (cf. règle 6 ci-dessous).
+
 ## Objectif
 
 Concevoir et déployer un **data lake** pour des données de capteurs IoT industriels (5 lignes de
