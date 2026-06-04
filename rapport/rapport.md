@@ -1,6 +1,6 @@
 # Rapport professionnel — Data Lake IoT industriel (épreuve E7)
 
-> **Document de travail**, alimenté à la fin de chaque « jour » de l'énoncé (cf. CLAUDE.md, règle 6). La version finale (≥ 5 pages) est consolidée et mise au propre au Jour 8, puis exportée en PDF. Détails techniques : [docs/architecture.md](../docs/architecture.md) ; exploration des données : [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
+> **Document de travail**, organisé en **journal de réalisation par date réelle** (cf. CLAUDE.md, règle 6). La chronologie réelle diffère volontairement du découpage théorique « Jour 1…8 » de l'énoncé (voir §1, *démarche socle d'abord*) ; les compétences (C18–C21) sont indiquées en étiquette de chaque entrée. La version finale (≥ 5 pages) est consolidée et mise au propre au Jour 8, puis exportée en PDF. Détails techniques : [docs/architecture.md](../docs/architecture.md) ; exploration des données : [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
 
 ## 1. Contexte & objectifs
 
@@ -8,29 +8,32 @@ Mission confiée par la DSI d'un équipementier automobile : concevoir et déplo
 
 Stack imposée : **MinIO** (stockage objet S3), **Apache Airflow** (orchestration), **OpenMetadata** (catalogue), **Python/boto3**, **Docker Compose**, **Git**.
 
-**Démarche — le socle technique d'abord.** La **stack complète a été réalisée en premier** : un unique `docker compose` réunissant **tous les conteneurs** — MinIO (+ création des buckets), Postgres mutualisé, l'Airflow métier, OpenMetadata (serveur, ingestion, Elasticsearch) et un conteneur de développement — **en respectant strictement les technologies demandées** par le brief. Disposer d'emblée d'un environnement **opérationnel et reproductible** (relançable par un tiers via Docker Compose) a permis de mener ensuite l'analyse et la modélisation sur une base saine. *(Cela ne contrevient pas au principe « analyser avant de coder » du C18 : l'analyse des données précède toujours les **décisions d'architecture** ; seul l'**environnement d'exécution** est monté au préalable.)*
+**Démarche — le socle technique d'abord.** La **stack complète a été montée en premier** (le 2 juin), avant l'analyse et le développement. Disposer d'emblée d'un environnement **opérationnel et reproductible** (relançable par un tiers via Docker Compose) a permis de mener ensuite l'analyse et la modélisation sur une base saine. *(Cela ne contrevient pas au principe « analyser avant de coder » du C18 : l'analyse des données précède toujours les **décisions d'architecture** ; seul l'**environnement d'exécution** est monté au préalable.)* C'est cette démarche qui explique pourquoi ce rapport est organisé par **date réelle** plutôt que selon la numérotation des « jours » de l'énoncé.
 
-**Maîtrise du nombre de conteneurs.** Plusieurs choix limitent la prolifération des conteneurs :
+## 2. Journal de réalisation
 
-- **Postgres mutualisé** : un **seul** conteneur Postgres héberge **3 bases isolées** (Airflow métier, Airflow interne d'OpenMetadata, catalogue OpenMetadata) — au lieu de **3 conteneurs** distincts. Utilisateurs et bases séparés pour préserver l'isolation (gain de ressources sans couplage fonctionnel).
+### 2 juin 2026 — Socle technique (transverse, prérequis)
+
+**Activités.** Mise en place d'un unique `docker compose` réunissant **tous les conteneurs** — MinIO (+ création des buckets), Postgres mutualisé, l'Airflow métier, OpenMetadata (serveur, ingestion, Elasticsearch) et un **conteneur de développement** où le code s'exécute *dans* le réseau Docker (mêmes noms d'hôte qu'en production) — **en respectant strictement les technologies demandées** par le brief.
+
+**Choix justifiés — maîtrise du nombre de conteneurs.** Plusieurs décisions limitent la prolifération :
+
+- **Postgres mutualisé** : un **seul** conteneur héberge **3 bases isolées** (Airflow métier, Airflow interne d'OpenMetadata, catalogue OpenMetadata) — au lieu de 3 conteneurs. Utilisateurs et bases séparés pour préserver l'isolation (gain de ressources sans couplage fonctionnel).
 - **Airflow en `LocalExecutor`** (et non `CeleryExecutor`) : **pas** de broker Redis, ni de workers Celery, ni de Flower → plusieurs conteneurs évités par instance Airflow.
 - **Jobs *one-shot*** (création des buckets, init Airflow, migration OpenMetadata) : conteneurs **éphémères** qui s'exécutent puis s'arrêtent (`Exited 0`), sans alourdir durablement la stack.
 - **Périmètre minimal** : uniquement les briques de la stack imposée — aucun service annexe (pas de pgAdmin, Flower, proxy…).
 
 **Limite assumée à la mutualisation** : les **2 Airflow restent séparés** (métier vs ingestion d'OpenMetadata). Mutualiser Postgres est un gain net ; mutualiser Airflow aurait introduit un **couplage fragile** pour un bénéfice faible — donc **non retenu** (cf. [docs/architecture.md](../docs/architecture.md)).
 
-## 2. C18 — Architecture & analyse des données (Jour 1)
+### 3 juin 2026 — C18 : analyse des données & architecture (Jour 1 de l'énoncé)
 
-### 2.1 Activités réalisées
+**Activités réalisées.**
 
-- **Socle technique** : stack conteneurisée (MinIO + buckets, Postgres mutualisé, Airflow, OpenMetadata, Elasticsearch) et un conteneur de développement où le code s'exécute *dans* le réseau Docker (mêmes noms d'hôte qu'en production).
 - **Téléchargement des sources** : récupération des 5 CSV depuis Zenodo via son **API REST**, avec **vérification d'intégrité MD5** et idempotence ([datalake/download.py](../datalake/download.py)).
 - **Exploration** des 5 lignes (volumétrie, schémas, types, distribution du `label`, couverture temporelle) au moyen de fonctions réutilisables ([datalake/explore.py](../datalake/explore.py)) pilotées depuis un notebook.
-- **Modélisation** de l'architecture en couches et **schéma technique annoté** ([docs/architecture.md](../docs/architecture.md)).
+- **Modélisation** de l'architecture en couches et **schéma technique annoté** ([docs/architecture.md](../docs/architecture.md)) ; **index des livrables** (README) et squelette de ce rapport.
 
-### 2.2 Analyse des données & hétérogénéités identifiées
-
-Constats clés (30 000 enregistrements, 1 relevé/minute, janvier→mai 2025, ~1 % d'anomalies) :
+**Analyse des données & hétérogénéités identifiées.** Constats clés (30 000 enregistrements, 1 relevé/minute, janvier→mai 2025, ~1 % d'anomalies) :
 
 - **Casse des colonnes non uniforme** (et parfois incohérente au sein d'un fichier) : `Temperature`/`temperature`, `Pressure`/`pressure`, `Elapsed_time`/`elapsed_time`.
 - **`elapsed_time` optionnel** : présent uniquement sur Line A et Line B.
@@ -39,9 +42,7 @@ Constats clés (30 000 enregistrements, 1 relevé/minute, janvier→mai 2025, ~1
 - **Écart documentation ↔ données** : LineE annoncée « 0 % d'anomalies » mais en contient 0,5 % — *la donnée fait foi*, à tracer comme avertissement qualité.
 - **Un fichier source = un seul mois** (vérifié) : déterminant pour le partitionnement.
 
-### 2.3 Modélisation de l'architecture & choix justifiés
-
-Architecture en **4 couches** (raw → staging → curated → archive). Principaux choix (détail et justifications dans [docs/architecture.md](../docs/architecture.md)) :
+**Modélisation de l'architecture & choix justifiés.** Architecture en **4 couches** (raw → staging → curated → archive). Principaux choix (détail dans [docs/architecture.md](../docs/architecture.md)) :
 
 - **Partitionnement à deux granularités** : `raw` au **mois** (permet de déposer les fichiers *tels quels* + MD5) ; `staging`/`curated` au **jour**, avec un traitement **au fil de l'eau** (un jour à la fois) qui simule un flux temps réel.
 - **Formats** : CSV en `raw` (fidélité à la source), **Parquet** en aval (typé, compressé, colonnaire — adapté à l'analytique et au ML).
@@ -49,31 +50,23 @@ Architecture en **4 couches** (raw → staging → curated → archive). Princip
 - **3 DAGs** (ingestion → harmonisation → consolidation) ; le 3ᵉ (`staging → curated`) n'est pas exigé par l'énoncé mais **assumé** pour la cohérence du flux.
 - **Schéma en Mermaid** (diagramme-as-code, versionnable, rendu sur GitHub) plutôt que draw.io.
 
-### 2.4 Notions abordées
+**Notions abordées.** Architecture en couches d'un data lake ; partitionnement (style Hive) et son lien avec volumétrie/fréquence ; **idempotence** et clé naturelle ; **intégrité** par hash MD5 ; gestion des valeurs manquantes (**`null` natif Polars**, distinct de `NaN` tel que géré par Pandas) ; **déséquilibre de classes** (enjeu central de la détection d'anomalies) ; gouvernance des métadonnées (réconcilier doc et données) ; diagramme-as-code.
 
-Architecture en couches d'un data lake ; partitionnement (style Hive) et son lien avec volumétrie/fréquence ; **idempotence** et clé naturelle ; **intégrité** par hash MD5 ; gestion des valeurs manquantes (**`null` natif Polars**, distinct de `NaN` tel que géré par Pandas) ; **déséquilibre de classes** (enjeu central de la détection d'anomalies) ; gouvernance des métadonnées (réconcilier doc et données) ; diagramme-as-code.
+### 4 juin 2026 — C19 : ingestion brute + policies d'accès (Jour 2 de l'énoncé)
 
-## 3. C19 — Intégration (Jours 2 à 4)
+**Activités réalisées.**
 
-**Ingestion `data/` → `raw/`** : module réutilisable `datalake/ingestion.py` (appelé par le CLI `python -m datalake.ingestion` et, à terme, par le DAG d'ingestion) — dépôt byte-identique, partition au mois, **vérification MD5** (ETag), **idempotence** (skip si MD5 identique) et **cascade** d'invalidation de `staging`. Mécanique mutualisée via `datalake/runner.py`. *(Buckets, upload boto3, MD5 = exigences Jour 2 ✅ ; DAGs = Jours 3-4.)*
+- **Ingestion `data/` → `raw/`** : module réutilisable [datalake/ingestion.py](../datalake/ingestion.py) (appelé par le CLI `python -m datalake.ingestion` et, à terme, par le DAG d'ingestion) — dépôt byte-identique, partition au mois, **vérification MD5** (ETag), **idempotence** (skip si MD5 identique) et **cascade** d'invalidation de `staging`. Mécanique mutualisée via [datalake/runner.py](../datalake/runner.py). Vérifié sur MinIO réel (5 fichiers déposés, mois 01→05, idempotence confirmée). *(Buckets, upload boto3, MD5 = exigences Jour 2 ✅.)*
+- **Policies d'accès par bucket** : le job `minio-init` crée 3 comptes de service aux droits différenciés au moyen de **policies IAM personnalisées** (restreintes à des ARN de buckets précis, là où les policies intégrées de MinIO porteraient sur *tous* les buckets) — `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/`+`staging/`+`curated/`), `datalake-admin` (tous droits). Droits **vérifiés** (un compte ne peut agir hors de son périmètre). Script et JSON versionnés dans [init-scripts/minio/](../init-scripts/minio/). *(Réalise l'exigence Jour 2 « policies d'accès initiales selon bucket » ✅ et, par anticipation, la **gestion des comptes du C21**.)*
+- **Qualité & outillage** : migration de pandas vers **Polars** (Arrow-natif, `null` distinct de `NaN`) ; config **ruff + pytest unifiée** dans `pyproject.toml` (règles `E,W,F,I,UP,B,ANN`) ; **typage strict** des paramètres (client boto3 = `botocore.client.BaseClient`) ; développement en **TDD** avec un faux client S3 en pur Python.
 
-**Policies d'accès par bucket** : le job `minio-init` crée 3 comptes de service aux droits différenciés au moyen de **policies IAM personnalisées** (restreintes à des ARN de buckets précis, là où les policies intégrées de MinIO porteraient sur *tous* les buckets) — `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/`+`staging/`+`curated/`), `datalake-admin` (tous droits). Droits **vérifiés** (un compte ne peut agir hors de son périmètre). Script et JSON versionnés dans [init-scripts/minio/](../init-scripts/minio/). *(Exigence Jour 2 « policies d'accès initiales selon bucket » ✅ ; SSE-S3, logs d'audit et matrice de gouvernance écrite = C21.)*
+**Notions abordées.** Modèle **IAM/policies S3** (actions, ressources/ARN, distinction bucket vs objets) et **RBAC** (utilisateur → policy → buckets) ; `ETag = MD5` d'un upload simple ; **idempotence** d'un pipeline et **cascade** d'invalidation ; **TDD** et injection de dépendance (client S3 factice) ; typage statique et linting.
 
-## 4. C20 — Catalogue & cycle de vie (Jour 5)
-
-*(À compléter : connexion OpenMetadata ↔ MinIO, 5 fiches métadonnées, politique ILM 180 j / 2 ans.)*
-
-## 5. C21 — Sécurité & gouvernance (Jours 6-7)
-
-**Comptes & droits — déjà réalisés (anticipés dès le C19).** Les 3 comptes de service et leurs droits différenciés ont été gérés **en une seule fois**, avec les policies d'accès par bucket (cf. §3) : `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/`+`staging/`+`curated/`), `datalake-admin` (tous droits). La **gestion des comptes attendue au C21 est donc faite** — droits vérifiés (un compte ne peut agir hors de son périmètre) et versionnés dans [init-scripts/minio/](../init-scripts/minio/), donc reproductibles par un tiers.
-
-*(Reste à compléter au C21 : chiffrement **SSE-S3** sur les buckets de production, activation et **analyse des logs d'audit** MinIO, et rédaction de la **politique de gouvernance** — matrice « qui accède à quoi, sous quelles conditions, avec quelles responsabilités ».)*
-
-## 6. Notions, difficultés & auto-évaluation
+## 3. Notions, difficultés & auto-évaluation
 
 *(À compléter au fil de l'eau : notions mobilisées, difficultés rencontrées et résolues, auto-évaluation par compétence.)*
 
-## 7. Annexes
+## 4. Annexes
 
 - Schéma d'architecture annoté : [docs/architecture.md](../docs/architecture.md) (§2).
 - Exploration des données : [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
