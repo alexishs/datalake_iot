@@ -1,0 +1,25 @@
+# =============================================================================
+#  Configuration des outils de développement du projet (source unique)
+# =============================================================================
+#  Ce fichier ne déclare PAS de paquet installable : les dépendances restent
+#  dans requirements.txt et le package `datalake/` est importé via le
+#  `pythonpath` ci-dessous (pas de `pip install -e`). On n'y met QUE la config
+#  des outils (ruff, pytest), regroupée en un seul endroit.
+# =============================================================================
+
+# --- Linter / formateur : ruff ---------------------------------------------
+[tool.ruff]
+target-version = "py312"        # syntaxe Python visée (ex. `X | None`)
+line-length = 100               # limite de longueur de ligne (règle E501)
+extend-exclude = ["notebooks"]  # notebooks d'exploration : narratif par cellules, hors lint
+
+[tool.ruff.lint]
+# E/W : pycodestyle · F : pyflakes (défauts) · I : tri des imports (isort)
+# UP : modernisation de syntaxe (pyupgrade) · B : pièges courants (bugbear)
+# ANN : annotations de type obligatoires (paramètres + retours, flake8-annotations)
+select = ["E", "W", "F", "I", "UP", "B", "ANN"]
+
+# --- Tests : pytest ---------------------------------------------------------
+[tool.pytest.ini_options]
+pythonpath = ["."]      # rend le package `datalake` importable depuis la racine
+testpaths = ["tests"]   # répertoire où chercher les tests

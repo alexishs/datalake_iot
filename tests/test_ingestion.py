@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import io
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -6,16 +10,19 @@ from datalake import ingestion
 from datalake.ingestion import partition_key, partition_prefix
 from datalake.storage import list_keys
 
+if TYPE_CHECKING:
+    from conftest import FakeS3
 
-def _write_csv(path, rows):
+
+def _write_csv(path: Path, rows: list[str]) -> None:
     path.write_text("timestamp,temperature,label\n" + "\n".join(rows) + "\n", encoding="utf-8")
 
 
-def test_partition_prefix_format():
+def test_partition_prefix_format() -> None:
     assert partition_prefix("lineA", 2025, 5) == "production_lines/lineA/year=2025/month=05/"
 
 
-def test_partition_key_single_month(tmp_path):
+def test_partition_key_single_month(tmp_path: Path) -> None:
     f = tmp_path / "LineA_Stable_10K.csv"
     _write_csv(f, ["2025-05-01 00:00:00,180.0,0", "2025-05-01 00:01:00,180.1,0"])
     prefix, key = partition_key(f)
@@ -23,14 +30,14 @@ def test_partition_key_single_month(tmp_path):
     assert key == "production_lines/lineA/year=2025/month=05/LineA_Stable_10K.csv"
 
 
-def test_partition_key_multi_month_raises(tmp_path):
+def test_partition_key_multi_month_raises(tmp_path: Path) -> None:
     f = tmp_path / "LineA_Stable_10K.csv"
     _write_csv(f, ["2025-05-31 23:59:00,180.0,0", "2025-06-01 00:00:00,180.1,0"])
     with pytest.raises(ValueError):
         partition_key(f)
 
 
-def _line_csv(path):
+def _line_csv(path: Path) -> Path:
     path.write_text(
         "timestamp,temperature,label\n2025-05-01 00:00:00,180.0,0\n2025-05-01 00:01:00,180.1,1\n",
         encoding="utf-8",
@@ -38,7 +45,7 @@ def _line_csv(path):
     return path
 
 
-def test_ingest_first_import(tmp_path, fake_s3):
+def test_ingest_first_import(tmp_path: Path, fake_s3: FakeS3) -> None:
     f = _line_csv(tmp_path / "LineA_Stable_10K.csv")
     res = ingestion.ingest_file(f, client=fake_s3)
     assert res.ok and res.statut == "ré-importé"
@@ -47,7 +54,7 @@ def test_ingest_first_import(tmp_path, fake_s3):
     assert fake_s3.store[("raw", key)] == f.read_bytes()  # byte-identique
 
 
-def test_ingest_skip_when_md5_identical(tmp_path, fake_s3):
+def test_ingest_skip_when_md5_identical(tmp_path: Path, fake_s3: FakeS3) -> None:
     f = _line_csv(tmp_path / "LineA_Stable_10K.csv")
     ingestion.ingest_file(f, client=fake_s3)              # 1er import
     # un objet staging dérivé existe :
@@ -60,7 +67,7 @@ def test_ingest_skip_when_md5_identical(tmp_path, fake_s3):
     assert list_keys(fake_s3, "staging", "production_lines/lineA/year=2025/month=05/")
 
 
-def test_reimport_invalidates_staging(tmp_path, fake_s3):
+def test_reimport_invalidates_staging(tmp_path: Path, fake_s3: FakeS3) -> None:
     f = _line_csv(tmp_path / "LineA_Stable_10K.csv")
     key = "production_lines/lineA/year=2025/month=05/LineA_Stable_10K.csv"
     # raw contient une ANCIENNE version (MD5 différent) + un dérivé en staging :
@@ -70,11 +77,12 @@ def test_reimport_invalidates_staging(tmp_path, fake_s3):
                        Body=io.BytesIO(b"derive"))
     res = ingestion.ingest_file(f, client=fake_s3)
     assert res.ok and res.statut == "ré-importé"
-    assert fake_s3.store[("raw", key)] == f.read_bytes()                       # raw à jour
-    assert list_keys(fake_s3, "staging", "production_lines/lineA/year=2025/month=05/") == []  # cascade
+    assert fake_s3.store[("raw", key)] == f.read_bytes()  # raw à jour
+    # cascade : la même (ligne, mois) a été vidée en staging
+    assert list_keys(fake_s3, "staging", "production_lines/lineA/year=2025/month=05/") == []
 
 
-def test_reimport_cleans_renamed_object_in_raw(tmp_path, fake_s3):
+def test_reimport_cleans_renamed_object_in_raw(tmp_path: Path, fake_s3: FakeS3) -> None:
     f = _line_csv(tmp_path / "LineA_Stable_10K.csv")
     # un objet d'un ancien nom traîne dans la partition raw :
     stale = "production_lines/lineA/year=2025/month=05/LineA_OLDNAME.csv"
@@ -84,7 +92,9 @@ def test_reimport_cleans_renamed_object_in_raw(tmp_path, fake_s3):
     assert keys == ["production_lines/lineA/year=2025/month=05/LineA_Stable_10K.csv"]
 
 
-def test_md5_failure_does_not_touch_staging(tmp_path, fake_s3, monkeypatch):
+def test_md5_failure_does_not_touch_staging(
+    tmp_path: Path, fake_s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
     f = _line_csv(tmp_path / "LineA_Stable_10K.csv")
     fake_s3.put_object(Bucket="staging",
                        Key="production_lines/lineA/year=2025/month=05/day=01/part.parquet",

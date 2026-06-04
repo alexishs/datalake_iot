@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import io
+from typing import TYPE_CHECKING
 
 import pytest
 from botocore.exceptions import ClientError
 
+if TYPE_CHECKING:
+    from conftest import FakeS3
 
-def test_fake_put_head_list_delete(fake_s3):
+
+def test_fake_put_head_list_delete(fake_s3: FakeS3) -> None:
     fake_s3.put_object(Bucket="raw", Key="a/x.csv", Body=io.BytesIO(b"hello"))
     # MD5("hello") = 5d41402abc4b2a76b9719d911017c592
     assert fake_s3.head_object(Bucket="raw", Key="a/x.csv")["ETag"].strip('"') == \

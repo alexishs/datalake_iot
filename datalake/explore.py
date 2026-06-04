@@ -35,7 +35,7 @@ def describe(path: Path | str) -> pl.DataFrame:
     return load(path).describe()
 
 
-def _find_col(columns, name: str) -> str | None:
+def _find_col(columns: list[str], name: str) -> str | None:
     """Retrouve une colonne par son nom, insensible à la casse."""
     for c in columns:
         if c.lower() == name.lower():
@@ -97,7 +97,7 @@ def casing_report(paths: list[Path]) -> pl.DataFrame:
 def dtypes_table(paths: list[Path]) -> pl.DataFrame:
     """Types inférés, par colonne normalisée et par fichier."""
     per_file = {
-        p.name: {c.lower(): str(t) for c, t in zip(load(p).columns, load(p).dtypes)}
+        p.name: {c.lower(): str(t) for c, t in zip(load(p).columns, load(p).dtypes, strict=True)}
         for p in paths
     }
     all_cols = sorted({c for d in per_file.values() for c in d})

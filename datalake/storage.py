@@ -5,12 +5,12 @@ import hashlib
 from pathlib import Path
 
 import boto3
-from botocore.client import Config
+from botocore.client import BaseClient, Config
 
 from .config import get_minio_settings
 
 
-def get_s3_client():
+def get_s3_client() -> BaseClient:
     """Retourne un client boto3 configuré pour MinIO (signature S3v4)."""
     s = get_minio_settings()
     return boto3.client(
@@ -31,7 +31,7 @@ def md5_file(path: str | Path, chunk_size: int = 8192) -> str:
     return h.hexdigest()
 
 
-def list_keys(client, bucket: str, prefix: str) -> list[str]:
+def list_keys(client: BaseClient, bucket: str, prefix: str) -> list[str]:
     """Toutes les clés d'objets sous `prefix` (pagination gérée)."""
     keys, token = [], None
     while True:
@@ -46,7 +46,7 @@ def list_keys(client, bucket: str, prefix: str) -> list[str]:
             return keys
 
 
-def delete_keys(client, bucket: str, keys: list[str]) -> int:
+def delete_keys(client: BaseClient, bucket: str, keys: list[str]) -> int:
     """Supprime les clés données (par lots de 1000). Retourne le nombre supprimé."""
     total = 0
     for i in range(0, len(keys), 1000):
@@ -57,6 +57,6 @@ def delete_keys(client, bucket: str, keys: list[str]) -> int:
     return total
 
 
-def delete_prefix(client, bucket: str, prefix: str) -> int:
+def delete_prefix(client: BaseClient, bucket: str, prefix: str) -> int:
     """Supprime tous les objets sous `prefix`. Retourne le nombre supprimé."""
     return delete_keys(client, bucket, list_keys(client, bucket, prefix))

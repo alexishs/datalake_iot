@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import polars as pl
+from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 
 from datalake.explore import TS_FORMAT, csv_paths, line_id
@@ -41,7 +42,7 @@ def partition_key(path: Path | str) -> tuple[str, str]:
     return prefix, prefix + path.name
 
 
-def _remote_etag(client, bucket: str, key: str) -> str | None:
+def _remote_etag(client: BaseClient, bucket: str, key: str) -> str | None:
     """ETag (= MD5 pour un upload simple) de l'objet, ou None s'il est absent."""
     try:
         return client.head_object(Bucket=bucket, Key=key)["ETag"].strip('"')
@@ -49,7 +50,7 @@ def _remote_etag(client, bucket: str, key: str) -> str | None:
         return None
 
 
-def ingest_file(path: Path | str, client=None) -> Result:
+def ingest_file(path: Path | str, client: BaseClient | None = None) -> Result:
     """Dépose un CSV dans `raw/` (byte-identique, MD5) ; idempotent + cascade vers `staging`."""
     path = Path(path)
     client = client or get_s3_client()

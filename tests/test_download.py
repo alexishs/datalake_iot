@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import hashlib
+from pathlib import Path
 
 from datalake import download
 from datalake.runner import Result
 
 
-def test_download_one_skip_when_present(tmp_path):
+def test_download_one_skip_when_present(tmp_path: Path) -> None:
     content = b"timestamp,label\n2025-01-01 00:00:00,0\n"
     (tmp_path / "f.csv").write_bytes(content)
     meta = {
