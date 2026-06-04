@@ -58,7 +58,7 @@ def download_one(meta: dict, dest: Path) -> Result:
     """Télécharge un fichier dans `dest` (vérif MD5). Idempotent (skip si déjà présent)."""
     target = dest / meta["key"]
     if target.exists() and md5_file(target) == meta["md5"]:
-        return Result(meta["key"], f"déjà présent ({human(meta['size'])})", True)
+        return Result(meta["key"], f"déjà présent, MD5 vérifié ({human(meta['size'])})", True)
 
     tmp = target.with_suffix(target.suffix + ".part")
     req = urllib.request.Request(meta["url"], headers={"User-Agent": "datalake-iot/1.0"})
@@ -71,7 +71,7 @@ def download_one(meta: dict, dest: Path) -> Result:
         tmp.unlink(missing_ok=True)
         return Result(meta["key"], f"MD5 INVALIDE (attendu {meta['md5']}, obtenu {got})", False)
     tmp.replace(target)
-    return Result(meta["key"], f"téléchargé ({human(meta['size'])})", True)
+    return Result(meta["key"], f"téléchargé, MD5 vérifié ({human(meta['size'])})", True)
 
 
 def main() -> int:
