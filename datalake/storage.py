@@ -29,3 +29,34 @@ def md5_file(path: str | Path, chunk_size: int = 8192) -> str:
         for chunk in iter(lambda: f.read(chunk_size), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def list_keys(client, bucket: str, prefix: str) -> list[str]:
+    """Toutes les clés d'objets sous `prefix` (pagination gérée)."""
+    keys, token = [], None
+    while True:
+        kwargs = {"Bucket": bucket, "Prefix": prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        resp = client.list_objects_v2(**kwargs)
+        keys.extend(obj["Key"] for obj in resp.get("Contents", []))
+        if resp.get("IsTruncated"):
+            token = resp.get("NextContinuationToken")
+        else:
+            return keys
+
+
+def delete_keys(client, bucket: str, keys: list[str]) -> int:
+    """Supprime les clés données (par lots de 1000). Retourne le nombre supprimé."""
+    total = 0
+    for i in range(0, len(keys), 1000):
+        batch = keys[i : i + 1000]
+        if batch:
+            client.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": k} for k in batch]})
+            total += len(batch)
+    return total
+
+
+def delete_prefix(client, bucket: str, prefix: str) -> int:
+    """Supprime tous les objets sous `prefix`. Retourne le nombre supprimé."""
+    return delete_keys(client, bucket, list_keys(client, bucket, prefix))

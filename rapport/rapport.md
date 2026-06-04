@@ -55,7 +55,7 @@ Architecture en couches d'un data lake ; partitionnement (style Hive) et son lie
 
 ## 3. C19 — Intégration (Jours 2 à 4)
 
-*(À compléter : MinIO & buckets, script d'upload + MD5, DAGs d'ingestion/harmonisation/consolidation, partitionnement et traitement au fil de l'eau, procédure d'intégration.)*
+**Ingestion `data/` → `raw/`** : module réutilisable `datalake/ingestion.py` (appelé par le CLI `python -m datalake.ingestion` et, à terme, par le DAG d'ingestion) — dépôt byte-identique, partition au mois, **vérification MD5** (ETag), **idempotence** (skip si MD5 identique) et **cascade** d'invalidation de `staging`. Mécanique mutualisée via `datalake/runner.py`. *(Buckets, upload boto3, MD5 = exigences Jour 2 ✅ ; DAGs = Jours 3-4.)*
 
 ## 4. C20 — Catalogue & cycle de vie (Jour 5)
 
