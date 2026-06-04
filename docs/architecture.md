@@ -168,7 +168,7 @@ Contrat que doit respecter le script/DAG d'ingestion (`raw/`) et d'harmonisation
 
 ### Harmonisation des colonnes (→ `staging/`, schéma cible §6)
 4. **Normaliser tous les noms de colonnes en minuscules** (`Temperature`→`temperature`, `Pressure`→`pressure`, `Elapsed_time`→`elapsed_time`).
-5. **`elapsed_time` optionnel** : si absent (LineC/D/E), créer la colonne avec une valeur **manquante (`NULL`)** — en pandas via `NaN`/`pd.NA`, **persistée en `NULL`** dans Parquet (jamais un sentinelle comme `0`). Ne jamais présumer sa présence.
+5. **`elapsed_time` optionnel** : si absent (LineC/D/E), créer la colonne avec une valeur **manquante (`null`)**, **persistée en `NULL`** dans Parquet (jamais un sentinelle comme `0`). Ne jamais présumer sa présence.
 6. Produire le **schéma cible figé du §6** (mêmes colonnes, mêmes types) quel que soit le fichier d'entrée.
 
 ### Typage / parsing

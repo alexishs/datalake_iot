@@ -15,8 +15,7 @@ boto3~=1.35            # client S3 (upload, list, get)
 botocore~=1.35         # dépendance de boto3 (épinglée pour cohérence)
 
 # --- Exploration & manipulation des données ---
-pandas~=2.2            # lecture/analyse des CSV, comparaison de schémas
-pyarrow~=18.0          # backend rapide + export Parquet (staging/curated)
+polars~=1.41           # lecture/analyse des CSV + Parquet (Arrow-natif, rapide ; null natif)
 
 # --- Configuration ---
 python-dotenv~=1.0     # charge .env dans les scripts locaux

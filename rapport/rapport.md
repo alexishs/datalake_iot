@@ -51,7 +51,7 @@ Architecture en **4 couches** (raw → staging → curated → archive). Princip
 
 ### 2.4 Notions abordées
 
-Architecture en couches d'un data lake ; partitionnement (style Hive) et son lien avec volumétrie/fréquence ; **idempotence** et clé naturelle ; **intégrité** par hash MD5 ; distinction **`NaN` vs `NULL`** ; **déséquilibre de classes** (enjeu central de la détection d'anomalies) ; gouvernance des métadonnées (réconcilier doc et données) ; diagramme-as-code.
+Architecture en couches d'un data lake ; partitionnement (style Hive) et son lien avec volumétrie/fréquence ; **idempotence** et clé naturelle ; **intégrité** par hash MD5 ; gestion des valeurs manquantes (**`null` natif Polars**, distinct de `NaN` tel que géré par Pandas) ; **déséquilibre de classes** (enjeu central de la détection d'anomalies) ; gouvernance des métadonnées (réconcilier doc et données) ; diagramme-as-code.
 
 ## 3. C19 — Intégration (Jours 2 à 4)
 

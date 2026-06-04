@@ -165,8 +165,7 @@ Périmètre : dépendances **locales** (conteneur `dev` / outillage). Airflow, O
 |---|---|---|
 | `boto3` | `~=1.35` | Client S3 pour MinIO (upload, list, get) |
 | `botocore` | `~=1.35` | Dépendance de boto3, épinglée pour cohérence de version |
-| `pandas` | `~=2.2` | Lecture/analyse des CSV, comparaison de schémas (Jour 1, C18) |
-| `pyarrow` | `~=18.0` | Backend rapide + export Parquet (staging/curated) |
+| `polars` | `~=1.41` | Lecture/analyse des CSV + Parquet — Arrow-natif, rapide, `null` natif (Jour 1, C18) |
 | `python-dotenv` | `~=1.0` | Charge `.env` dans les scripts locaux |
 | `ruff` | `~=0.8` | Linter + formateur (qualité de code, dev) |
 
