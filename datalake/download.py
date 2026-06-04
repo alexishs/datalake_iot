@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from datalake.runner import Result, run
 from datalake.storage import md5_file
 
 ZENODO_RECORD_API = "https://zenodo.org/api/records/{record_id}"
@@ -53,14 +54,11 @@ def list_files(record_id: str) -> list[dict]:
     return files
 
 
-def download_one(meta: dict, dest: Path) -> str:
-    """Télécharge un fichier (avec vérif MD5). Retourne le statut : ok|skip|error."""
+def download_one(meta: dict, dest: Path) -> Result:
+    """Télécharge un fichier dans `dest` (vérif MD5). Idempotent (skip si déjà présent)."""
     target = dest / meta["key"]
-
-    # Idempotence : déjà là et intègre -> on saute
     if target.exists() and md5_file(target) == meta["md5"]:
-        print(f"  {meta['key']:<42} {human(meta['size']):>8}  = déjà présent (MD5 ok)")
-        return "skip"
+        return Result(meta["key"], f"déjà présent ({human(meta['size'])})", True)
 
     tmp = target.with_suffix(target.suffix + ".part")
     req = urllib.request.Request(meta["url"], headers={"User-Agent": "datalake-iot/1.0"})
@@ -71,13 +69,9 @@ def download_one(meta: dict, dest: Path) -> str:
     got = md5_file(tmp)
     if got != meta["md5"]:
         tmp.unlink(missing_ok=True)
-        print(f"  {meta['key']:<42} {human(meta['size']):>8}  ✗ MD5 INVALIDE "
-              f"(attendu {meta['md5']}, obtenu {got})")
-        return "error"
-
+        return Result(meta["key"], f"MD5 INVALIDE (attendu {meta['md5']}, obtenu {got})", False)
     tmp.replace(target)
-    print(f"  {meta['key']:<42} {human(meta['size']):>8}  ✓ MD5 ok")
-    return "ok"
+    return Result(meta["key"], f"téléchargé ({human(meta['size'])})", True)
 
 
 def main() -> int:
@@ -92,15 +86,9 @@ def main() -> int:
     files = list_files(args.record_id)
     if args.csv_only:
         files = [f for f in files if f["key"].lower().endswith(".csv")]
-
-    print(f"Dépôt Zenodo {args.record_id} — {len(files)} fichier(s) vers {args.dest}/")
-    stats = {"ok": 0, "skip": 0, "error": 0}
-    for meta in sorted(files, key=lambda f: f["key"]):
-        stats[download_one(meta, args.dest)] += 1
-
-    print(f"→ {stats['ok']} téléchargé(s), {stats['skip']} déjà présent(s), "
-          f"{stats['error']} erreur(s).")
-    return 1 if stats["error"] else 0
+    files = sorted(files, key=lambda f: f["key"])
+    return run(lambda meta: download_one(meta, args.dest), files,
+               f"Dépôt Zenodo {args.record_id} → {args.dest}/")
 
 
 if __name__ == "__main__":
