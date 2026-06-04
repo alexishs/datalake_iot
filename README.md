@@ -137,6 +137,29 @@ Le job `minio-init` ([init-scripts/minio/](init-scripts/minio/)) crée, en plus 
 
 Le package lit sa configuration depuis l'environnement (endpoint MinIO par défaut `http://minio:9000`, secrets via variables). Voir [datalake/config.py](datalake/config.py).
 
+### Commandes du package & flux de données
+
+Deux points d'entrée couvrent le flux **acquisition → dépôt brut** (l'harmonisation vers `staging/` viendra avec les DAGs, Jours 3-4) :
+
+| Commande | Rôle | Idempotence |
+|---|---|---|
+| `python -m datalake.download` | **Acquisition** : télécharge les 5 CSV (+ PDF) depuis Zenodo vers `data/` et vérifie le MD5 | skip si le fichier local existe déjà avec le bon MD5 |
+| `python -m datalake.ingestion` | **Ingestion** : dépose les CSV de `data/` vers `raw/production_lines/lineX/year=/month=/` (copie **byte-identique**) et vérifie le MD5 (ETag) | skip si MD5 distant == local ; sinon ré-import + purge de la partition concernée |
+| `python -m datalake` | Smoke test : liste les buckets MinIO (vérifie la connexion) | — |
+
+Enchaînement de bout en bout, dans le conteneur `dev` :
+
+```bash
+docker compose up -d dev
+docker compose exec dev python -m datalake.download    # Internet (Zenodo) -> data/
+docker compose exec dev python -m datalake.ingestion   # data/             -> raw/
+docker compose exec dev python -m datalake.ingestion   # relance : tout « inchangé (MD5) » (idempotent)
+```
+
+Chaque commande affiche un rapport par fichier (`✓/✗ <fichier> — <statut>`), puis un bilan `→ N OK, M échec(s)`, et renvoie un **code de sortie** (`0` si tout va bien, `1` sinon).
+
+**Où exécuter quoi ?** `download` ne touche **pas** MinIO (juste Internet → `data/`) : il tourne aussi bien dans le conteneur `dev` que sur l'hôte (`source .venv/bin/activate && python -m datalake.download`). `ingestion` et le smoke test parlent à `minio:9000` : ils doivent tourner **dans le réseau Docker** (conteneur `dev` ou Airflow), jamais sur l'hôte nu (cf. *Pourquoi pas d'exécution sur l'hôte ?* plus bas). Options de `download` : `--csv-only` (ignore les PDF), `--record-id ID`, `--dest DOSSIER`.
+
 ### A. Débogage dans le conteneur `dev` (VSCode)
 
 C'est le mode recommandé pour tester/déboguer.
@@ -229,6 +252,7 @@ rapport/             rapport final (≥ 5 pages)
 - **OpenMetadata long à démarrer** : plusieurs minutes au 1er lancement (migration + indexation). Suivre `docker compose logs -f openmetadata-server` jusqu'à `healthy`.
 - **Elasticsearch qui s'arrête au boot** (`max virtual memory areas vm.max_map_count too low`) : `sudo sysctl -w vm.max_map_count=262144` (persister dans `/etc/sysctl.conf`).
 - **Dossiers montés possédés par `root`** : `dags/` et `datalake/` sont versionnés (avec `.gitkeep`) pour exister avant le `up` ; sinon Docker les recrée en `root`.
+- **Console MinIO bloquée au *login* derrière VSCode Remote-SSH** : le transfert de port **automatique** de VSCode maltraite le `POST /api/v1/login` de la console (réponse `204`), et la page reste figée après soumission. Ouvrez plutôt un **tunnel SSH natif** depuis votre poste — `ssh -L 9001:localhost:9001 <user>@<hôte>` — puis `http://localhost:9001`. Le serveur n'est pas en cause (l'API `:9000` répond, `mc`/boto3 fonctionnent) ; seul le proxy HTTP de VSCode pose problème.
 
 ## Arrêt
 
