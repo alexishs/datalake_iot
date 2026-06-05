@@ -197,6 +197,55 @@ Le package est rendu importable côté Airflow via `PYTHONPATH=/opt/airflow` et 
 
 `minio`, `postgres`… sont des noms de services Docker : ils ne résolvent **que dans le réseau Docker**. Exécuter le code sur la machine hôte échouerait (nom d'hôte introuvable). Le conteneur `dev` existe précisément pour garantir un environnement d'exécution identique à celui d'Airflow.
 
+## Explorer les données en SQL (DuckDB)
+
+> Outil d'**analyse en lecture seule** pour interroger le **contenu** des données (les lignes, pas les fichiers) directement en SQL sur les Parquet du lac. **Hors stack déployée** : ni installé ni requis par le pipeline ; c'est l'outil côté **analyste**. La console MinIO, elle, ne liste que des objets — le Parquet y est binaire.
+
+**Accès réseau.** DuckDB lit l'**API S3 de MinIO**, publiée sur le port **9000** (indépendant du conteneur `dev`). Le client SQL doit pouvoir **joindre cet endpoint** : sur la machine qui héberge la stack, c'est `localhost:9000` ; depuis une autre machine, l'endpoint est l'adresse réseau par laquelle MinIO est accessible (selon votre infrastructure). C'est cette valeur que l'on renseigne comme `ENDPOINT` ci-dessous.
+
+**Identifiants.** Utilisez un **compte de service** MinIO (cf. section *Comptes de service*) selon ce que vous voulez lire : `data-analyst` (lecture seule `curated/`), `data-engineer` ou root (pour `raw/`/`staging/`).
+
+### Méthode A — CLI `duckdb` (pur SQL)
+
+Installez le binaire `duckdb` (ou `pip install duckdb`), puis :
+```sql
+INSTALL httpfs; LOAD httpfs;
+CREATE OR REPLACE SECRET minio (
+    TYPE s3,
+    KEY_ID 'data-analyst', SECRET '<MINIO_ANALYST_PASSWORD>',
+    ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1'
+);
+SELECT line, count(*) AS n, sum(label) AS anomalies
+FROM read_parquet('s3://curated/production_lines/**/*.parquet')
+GROUP BY line ORDER BY line;
+```
+
+### Méthode B — DBeaver (interface graphique)
+
+1. DBeaver → **New Database Connection → DuckDB** ; comme base, un **fichier `.duckdb` local** (persistant) ou `:memory:`. DBeaver télécharge le pilote DuckDB (moteur **embarqué**, aucun serveur, aucun Python).
+2. **Une seule fois**, dans l'éditeur SQL — un **secret persistant** (stocké côté client dans `~/.duckdb/`, **réutilisé automatiquement** : la config n'a plus à figurer dans vos scripts) :
+   ```sql
+   INSTALL httpfs;
+   CREATE PERSISTENT SECRET minio (
+       TYPE s3,
+       KEY_ID 'data-analyst', SECRET '<MINIO_ANALYST_PASSWORD>',
+       ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false, REGION 'us-east-1'
+   );
+   ```
+3. **Une seule fois** aussi, créez une **vue** (sauvegardée dans le fichier `.duckdb` → elle **apparaît dans l'explorateur** sous `main` → *Views*, après un `F5`) :
+   ```sql
+   CREATE VIEW curated AS
+   SELECT * FROM read_parquet('s3://curated/production_lines/**/*.parquet');
+   ```
+4. Ensuite, **du SQL nu** : `SELECT * FROM curated WHERE line = 'lineA' LIMIT 100;` (ou double-clic sur la vue pour parcourir les données).
+
+**À noter :**
+- Les colonnes `line/year/month/day` sont **déjà dans les fichiers** Parquet → pas besoin de `hive_partitioning`, le glob `**/*.parquet` suffit.
+- Le `WHERE` profite de l'**élagage par statistiques** : chaque fichier = une partition `(line, jour)`, donc DuckDB lit les métadonnées et **saute les données** des fichiers non concernés (predicate pushdown, y compris à travers la vue).
+- Avec `data-analyst`, seul `curated/` est lisible — démonstration directe de la **gouvernance par bucket**.
+- `REGION` n'a **aucune portée géographique** ici : MinIO est *region-agnostic* et en ignore la valeur. Le champ reste néanmoins **requis par la signature S3 (SigV4)** du client, d'où la valeur par défaut `us-east-1`.
+- Le secret persistant est stocké **en clair** côté client (mot de passe de démo).
+
 ## Dépendances Python (`requirements.txt`)
 
 > Cette section documente le **rôle de chaque dépendance**. Le fichier [requirements.txt](requirements.txt) peut être régénéré (`pip freeze`), ce qui **écraserait ses commentaires** : la référence ci-dessous les préserve.
@@ -258,7 +307,6 @@ rapport/             rapport final (≥ 5 pages)
 - **OpenMetadata long à démarrer** : plusieurs minutes au 1er lancement (migration + indexation). Suivre `docker compose logs -f openmetadata-server` jusqu'à `healthy`.
 - **Elasticsearch qui s'arrête au boot** (`max virtual memory areas vm.max_map_count too low`) : `sudo sysctl -w vm.max_map_count=262144` (persister dans `/etc/sysctl.conf`).
 - **Dossiers montés possédés par `root`** : `dags/` et `datalake/` sont versionnés (avec `.gitkeep`) pour exister avant le `up` ; sinon Docker les recrée en `root`.
-- **Console MinIO bloquée au *login* derrière VSCode Remote-SSH** : le transfert de port **automatique** de VSCode maltraite le `POST /api/v1/login` de la console (réponse `204`), et la page reste figée après soumission. Ouvrez plutôt un **tunnel SSH natif** depuis votre poste — `ssh -L 9001:localhost:9001 <user>@<hôte>` — puis `http://localhost:9001`. Le serveur n'est pas en cause (l'API `:9000` répond, `mc`/boto3 fonctionnent) ; seul le proxy HTTP de VSCode pose problème.
 
 ## Arrêt
 

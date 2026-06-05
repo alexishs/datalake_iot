@@ -72,12 +72,17 @@ Stack imposée : **MinIO** (stockage objet S3), **Apache Airflow** (orchestratio
 - **Cascade `raw → staging → curated`** : un réimport `raw` d'une `(ligne, mois)` vide `staging` **ET** `curated` pour cette période → recalcul automatique des deux couches aval via leurs filigranes.
 - **Tests** : développement en **TDD pur Python** (faux client S3 + Polars, relecture des Parquet écrits pour vérifier le contenu) ; les DAGs (coquilles) sont validés par un contrôle d'intégrité **DagBag** exécuté dans le conteneur Airflow.
 - **Vérification de bout en bout** sur MinIO réel : **23 partitions** `staging` puis **23** `curated` produites ; auto-réparation confirmée via `airflow dags test` (suppression d'une partition → recréée à l'exécution suivante).
+- **Exploration des données livrées (SQL, DuckDB)** : interrogation du **contenu** de `curated` en SQL via **DuckDB** — en ligne de commande **et** via l'interface **DBeaver** (moteur embarqué, lecture seule) — directement sur les Parquet de MinIO (extension `httpfs`/S3, **secret persistant**, **vues** visibles dans l'explorateur). Effectuée avec le compte **`data-analyst`** (lecture seule `curated/`), ce qui **démontre concrètement la gouvernance par bucket** (les autres couches restent inaccessibles). Outil d'analyse **hors stack déployée**, documenté dans le [README](../README.md) (section « Explorer les données en SQL »).
 
-**Notions abordées.** Orchestration **Airflow** (DAG, `schedule`, `PythonOperator`, déclenchement manuel vs planifié) et **coquille fine** (séparation logique métier / orchestration) ; **filigrane** (*watermark*) comme état dérivé des données plutôt que de la date d'exécution ; **idempotence par partition** et pipeline **auto-réparant** par cascade ; harmonisation de schémas hétérogènes ; **contrôle d'intégrité DagBag**.
+**Notions abordées.** Orchestration **Airflow** (DAG, `schedule`, `PythonOperator`, déclenchement manuel vs planifié) et **coquille fine** (séparation logique métier / orchestration) ; **filigrane** (*watermark*) comme état dérivé des données plutôt que de la date d'exécution ; **idempotence par partition** et pipeline **auto-réparant** par cascade ; harmonisation de schémas hétérogènes ; **contrôle d'intégrité DagBag** ; interrogation SQL d'un lac via **DuckDB** (lecture directe de Parquet sur S3, *predicate pushdown* et **élagage par statistiques** de partition) ; distinction **data lake vs lakehouse** (formats de table **Iceberg/Delta/Hudi**, ACID et mutation **ligne-à-ligne** vs **réécriture de partition** sur Parquet immuable).
 
-## 3. Notions, difficultés & auto-évaluation
+## 3. Auto-évaluation par compétence
 
-*(À compléter au fil de l'eau : notions mobilisées, difficultés rencontrées et résolues, auto-évaluation par compétence.)*
+- **C18 — Architecture & analyse** : *acquis*. Les 5 lignes ont été analysées **avant** toute décision technique (volumétrie, schémas, hétérogénéités) ; l'architecture en couches est justifiée au regard de la volumétrie et de la fréquence ; le schéma annoté est lisible et exploitable par un tiers.
+- **C19 — Intégration** : *acquis*. Stack reproductible via Docker Compose ; ingestion vers `raw/` avec **vérification MD5** et **idempotence** ; **3 DAGs** (ingestion → harmonisation → consolidation) en fil-de-l'eau ; LineA traitée par jour (chunks) ; procédure d'intégration documentée dans le README.
+- **C20 — Catalogue & cycle de vie** : *à venir* (Jour 5) — fiches OpenMetadata et politique ILM.
+- **C21 — Sécurité & gouvernance** : *partiellement anticipé*. Les **3 comptes de service** aux droits différenciés par bucket sont déjà en place (réalisés dès le C19) ; restent le chiffrement **SSE-S3**, les **logs d'audit** et la rédaction de la **politique de gouvernance** écrite.
+- **Recul sur les choix** : plusieurs décisions vont **au-delà de l'énoncé** tout en restant justifiées et documentées — 3ᵉ DAG de consolidation, cadence minute, **filigrane auto-réparant**, exploration des données en SQL (**DuckDB**) — sans complexifier inutilement le projet.
 
 ## 4. Annexes
 
