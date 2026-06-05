@@ -40,6 +40,10 @@ x-airflow-common: &airflow-common
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB}
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    # Clé IDENTIQUE pour webserver ET scheduler : sinon chacun génère une clé
+    # aléatoire et le webserver ne peut pas lire les logs servis par le scheduler
+    # (HTTP 403 sur :8793). Cf. .env / .env.example.
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     # boto3 (MinIO) + polars (logique du package datalake) pour les DAGs
     # (dev only — en prod on build une image)
     _PIP_ADDITIONAL_REQUIREMENTS: "boto3 polars"
@@ -48,6 +52,7 @@ x-airflow-common: &airflow-common
   volumes:
     - ./dags:/opt/airflow/dags
     - ./datalake:/opt/airflow/datalake
+    - ./data:/opt/airflow/data:ro
     - airflow-logs:/opt/airflow/logs
   depends_on:
     postgres:

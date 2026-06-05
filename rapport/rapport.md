@@ -62,6 +62,19 @@ Stack imposée : **MinIO** (stockage objet S3), **Apache Airflow** (orchestratio
 
 **Notions abordées.** Modèle **IAM/policies S3** (actions, ressources/ARN, distinction bucket vs objets) et **RBAC** (utilisateur → policy → buckets) ; `ETag = MD5` d'un upload simple ; **idempotence** d'un pipeline et **cascade** d'invalidation ; **TDD** et injection de dépendance (client S3 factice) ; typage statique et linting.
 
+### 5 juin 2026 — C19 : DAGs du pipeline (Jours 3-4)
+
+**Activités réalisées.**
+
+- **3 DAGs Airflow** en **coquilles fines** réutilisant le package : [ingestion_raw](../dags/) (data → raw, déclenché manuellement), [harmonisation_staging](../dags/) et [consolidation_curated](../dags/) (toutes les minutes, **une journée par exécution**) — zéro logique métier dans les DAGs, qui se contentent d'appeler les fonctions du package depuis des `PythonOperator`.
+- **Nouveaux modules métier** : [datalake/harmonization.py](../datalake/harmonization.py) (raw → staging : normalisation de la **casse** des colonnes, `timestamp` **ISO 8601**, `elapsed_time` **nullable**, écriture **Parquet**, **partition au jour**, dédoublonnage) et [datalake/consolidation.py](../datalake/consolidation.py) (staging → curated : **table unifiée** avec colonne `line=`).
+- **Fil-de-l'eau** : le **filigrane** est **auto-réparant** — il désigne le plus ancien `(ligne, jour)` présent en amont mais absent en aval ; un trou (créé par la cascade) redevient simplement le prochain jour traité, sans intervention.
+- **Cascade `raw → staging → curated`** : un réimport `raw` d'une `(ligne, mois)` vide `staging` **ET** `curated` pour cette période → recalcul automatique des deux couches aval via leurs filigranes.
+- **Tests** : développement en **TDD pur Python** (faux client S3 + Polars, relecture des Parquet écrits pour vérifier le contenu) ; les DAGs (coquilles) sont validés par un contrôle d'intégrité **DagBag** exécuté dans le conteneur Airflow.
+- **Vérification de bout en bout** sur MinIO réel : **23 partitions** `staging` puis **23** `curated` produites ; auto-réparation confirmée via `airflow dags test` (suppression d'une partition → recréée à l'exécution suivante).
+
+**Notions abordées.** Orchestration **Airflow** (DAG, `schedule`, `PythonOperator`, déclenchement manuel vs planifié) et **coquille fine** (séparation logique métier / orchestration) ; **filigrane** (*watermark*) comme état dérivé des données plutôt que de la date d'exécution ; **idempotence par partition** et pipeline **auto-réparant** par cascade ; harmonisation de schémas hétérogènes ; **contrôle d'intégrité DagBag**.
+
 ## 3. Notions, difficultés & auto-évaluation
 
 *(À compléter au fil de l'eau : notions mobilisées, difficultés rencontrées et résolues, auto-évaluation par compétence.)*

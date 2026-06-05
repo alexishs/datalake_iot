@@ -20,3 +20,13 @@ def test_fake_put_head_list_delete(fake_s3: FakeS3) -> None:
     fake_s3.delete_objects(Bucket="raw", Delete={"Objects": [{"Key": "a/x.csv"}]})
     with pytest.raises(ClientError):
         fake_s3.head_object(Bucket="raw", Key="a/x.csv")
+
+
+def test_fake_get_object_renvoie_le_corps(fake_s3: FakeS3) -> None:
+    fake_s3.put_object(Bucket="raw", Key="a/x.csv", Body=io.BytesIO(b"coucou"))
+    assert fake_s3.get_object(Bucket="raw", Key="a/x.csv")["Body"].read() == b"coucou"
+
+
+def test_fake_get_object_absent_leve(fake_s3: FakeS3) -> None:
+    with pytest.raises(ClientError):
+        fake_s3.get_object(Bucket="raw", Key="absent")

@@ -51,7 +51,7 @@ flowchart LR
 |---|---|---|---|---|
 | **raw/** | données brutes *telles que reçues*, jamais modifiées | CSV d'origine **copié tel quel** (byte-identique) | `production_lines/lineX/`<br/>`year=YYYY/month=MM/` | DAG ingestion → DAG harmonisation |
 | **staging/** | données **nettoyées & harmonisées** | schéma unifié, **Parquet** | `production_lines/lineX/`<br/>`year=YYYY/month=MM/day=DD/` | DAG harmonisation → consolidation |
-| **curated/** | données **prêtes à l'analyse** | table **unifiée** des 5 lignes (+ colonne `line`), **Parquet** | `sensor_readings/line=lineX/`<br/>`year=YYYY/month=MM/day=DD/` | DAG consolidation → `data-analyst`, futurs modèles ML |
+| **curated/** | données **prêtes à l'analyse** | table **unifiée** des 5 lignes (+ colonne `line`), **Parquet** | `production_lines/line=lineX/`<br/>`year=YYYY/month=MM/day=DD/` | DAG consolidation → `data-analyst`, futurs modèles ML |
 | **archive/** | données **expirées** | objets déplacés par l'ILM | conservé tel quel | cycle de vie automatique |
 
 ### 3.1 `raw/` — zone d'atterrissage
@@ -59,7 +59,7 @@ flowchart LR
 - **Fichier copié tel quel** dans sa partition : `raw/production_lines/lineX/year=YYYY/month=MM/<fichier>.csv`. `line` vient du nom de fichier ; `year`/`month` sont déterminés à partir des **données** (le mois du `timestamp`). Un **fichier source couvre systématiquement un seul mois** → un fichier = une partition, déposé **byte-identique** à la source. Aucune transformation ici (typage et harmonisation : en `staging`).
 - **Intégrité** : on vérifie que le **MD5 du fichier déposé** est **identique à celui de la source** (exigence du brief, Jour 2) — garanti par la copie byte-identique.
 - **Garde-fou impératif** : vérifier que tous les `timestamp` du fichier tombent dans le **même mois** ; **sinon, échec de l'ingestion** (un fichier multi-mois invaliderait la copie en une seule partition → risque de mauvaise affectation silencieuse).
-- **(Ré)import idempotent & cascade** : « jamais modifiées » signifie **aucune transformation** (pas « jamais remplacées »). La décision repose sur le **MD5** : si le fichier local diffère de l'objet `raw` (ou est absent), on **vide la partition du mois en `raw` *et* la même `(ligne, mois)` en `staging`**, puis on réécrit `raw` ; si le MD5 est identique, on ne touche à rien. La purge de `staging` déclenche son **recalcul automatique** par le DAG aval (cf. §3.2, filigrane).
+- **(Ré)import idempotent & cascade** : « jamais modifiées » signifie **aucune transformation** (pas « jamais remplacées »). La décision repose sur le **MD5** : si le fichier local diffère de l'objet `raw` (ou est absent), on **vide la partition du mois en `raw` *et* la même `(ligne, mois)` en `staging` ET en `curated`**, puis on réécrit `raw` ; si le MD5 est identique, on ne touche à rien. La purge de `staging` (et de `curated`, qui en dérive) déclenche leur **recalcul automatique** par les DAGs aval (cf. §3.2, filigrane).
 
 ### 3.2 `staging/` — harmonisation
 Transformations appliquées (cf. schéma cible §6 et contrat §12) :
@@ -86,7 +86,7 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 |---|---|---|
 | raw | `production_lines/lineX/`<br/>`year=YYYY/month=MM/`<br/>(au **mois**) | **imposé** par le brief ; permet le dépôt des fichiers **tels quels** + MD5 ; trace ligne et période |
 | staging | `production_lines/lineX/`<br/>`year=YYYY/month=MM/day=DD/`<br/>(au **jour**) | granularité fine alignée sur le **traitement au fil de l'eau** (un jour à la fois) et les requêtes journalières |
-| curated | `sensor_readings/line=lineX/`<br/>`year=YYYY/month=MM/day=DD/`<br/>(au **jour**) | élagage par ligne, mois **et jour** (requêtes analytiques fines) |
+| curated | `production_lines/line=lineX/`<br/>`year=YYYY/month=MM/day=DD/`<br/>(au **jour**) | racine `production_lines` homogène ; **fusion** des 5 lignes en table unifiée → `line` en **partition Hive** (`line=`), d'où élagage par ligne/mois/jour (`line` reste aussi une colonne) |
 
 > **Deux granularités (décision, cf. §11) :** `raw` au **mois** (dépôt fichier + MD5) ; `staging`/`curated` au **jour**. Ce choix de granularité aval **n'est pas imposé par l'énoncé**. La règle de **dérivation des partitions** est détaillée dans le **contrat** (§12, règles 9‑12 + note).
 
@@ -117,7 +117,7 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 
 - **Identifiant de ligne** : motif `Line([A-E])` du nom de fichier → `lineA`…`lineE`.
 - **Buckets** : `raw`, `staging`, `curated`, `archive` (un par couche).
-- **Partitions** : `key=value` (Hive) pour `year`/`month`/`day` ; segment simple `lineX` en raw/staging (conforme au brief). `raw` au **mois**, `staging`/`curated` au **jour**.
+- **Partitions** : `key=value` (Hive) pour `year`/`month`/`day` (les 3 couches). Pour la ligne : segment simple `lineX` en **raw/staging** (organisation par source, conforme au brief), mais `line=lineX` en **Hive** en **curated** (table **unifiée** → `line` devient une partition). Racine `production_lines/` homogène partout. `raw` au **mois**, `staging`/`curated` au **jour**.
 
 ## 8. Cycle de vie des données (ILM)
 
@@ -150,7 +150,7 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 - `curated` = **table unifiée** des 5 lignes avec colonne `line` — cohérent avec l'objectif maintenance prédictive (historique multi-équipements homogène).
 - `raw` = **copie des fichiers source tels quels** (byte-identique) dans leur partition `lineX/year/month`, avec **vérification MD5** du fichier déposé — conforme au brief (« uploader les CSV » + « intégrité des fichiers déposés », Jour 2). Repose sur le fait **documenté** qu'un fichier source couvre **un seul mois** (garde-fou **impératif** : échec si le mois n'est pas unique).
 - **3ᵉ DAG `staging → curated`** (« consolidation ») : **non requis par l'énoncé** (2 DAGs demandés : ingestion brute + harmonisation). **Décision assumée** pour **rester cohérent avec la gestion du flux** déjà prévue en amont — *une couche = un DAG dédié* → pipeline homogène, traçable et idempotent de `raw` jusqu'à `curated`.
-- **Granularités, cadence, filigrane & cascade** : `raw` au **mois** (dépôt des fichiers tels quels + MD5) ; `staging`/`curated` au **jour** (`…/day=DD/`). Le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une journée par exécution**, la journée étant choisie par un **filigrane** (dernier jour présent en `staging`). Un (ré)import en `raw` **vide la même `(ligne, mois)` en `staging`** (cascade), ce qui — via le filigrane — déclenche le **recalcul automatique**. L'ensemble **réalise** l'exigence « simuler un flux / chunks » du brief ; le **choix précis** (cadence minute, granularité jour, filigrane, cascade) **n'est pas imposé** par l'énoncé : **décisions assumées** pour un flux réaliste, **idempotent et auto-réparant**, avec des **DAGs indépendants**.
+- **Granularités, cadence, filigrane & cascade** : `raw` au **mois** (dépôt des fichiers tels quels + MD5) ; `staging`/`curated` au **jour** (`…/day=DD/`). Le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une journée par exécution**, la journée étant choisie par un **filigrane** (dernier jour présent en `staging`). Un (ré)import en `raw` **vide la même `(ligne, mois)` en `staging` ET en `curated`** (cascade — `curated` dérivant de `staging`, il doit aussi être invalidé), ce qui — via les filigranes — déclenche le **recalcul automatique** des deux couches aval. L'ensemble **réalise** l'exigence « simuler un flux / chunks » du brief ; le **choix précis** (cadence minute, granularité jour, filigrane, cascade) **n'est pas imposé** par l'énoncé : **décisions assumées** pour un flux réaliste, **idempotent et auto-réparant**, avec des **DAGs indépendants**.
 
 - **Schéma en Mermaid** (plutôt que draw.io, *suggéré* par le brief) : **diagramme-as-code**, versionnable et *diffable*, **rendu nativement sur GitHub**, cohérent avec l'approche reproductible du dépôt. Le livrable « PDF / draw.io » est satisfait par un **export PDF**. *(Choix au titre de la « justification des choix » du C18 ; draw.io reste possible si un rendu « poster » est exigé.)*
 
@@ -180,7 +180,7 @@ Contrat que doit respecter le script/DAG d'ingestion (`raw/`) et d'harmonisation
 9. Chemin de dépôt : `raw/production_lines/{line}/year={YYYY}/month={MM}/<fichier>.csv`.
 10. `line` (`lineA`…`lineE`) se déduit du **nom de fichier** (motif `Line([A-E])`) — un fichier = une ligne de production.
 11. **`year` / `month` se déduisent des données** (le mois du `timestamp`), pas du nom de fichier. Un **fichier source couvre systématiquement un seul mois** → **un fichier = une partition**.
-12. **Le fichier est copié tel quel** (byte-identique) dans sa partition — **pas de transformation ni de scission** en `raw`. Conforme au brief (« uploader les CSV » + « vérifier l'intégrité des fichiers déposés »). **Garde-fou impératif** : tous les `timestamp` du fichier dans le **même mois**, sinon **échec**. **(Ré)import idempotent (MD5) + cascade** : si le MD5 local diffère de l'objet `raw` (ou absent) → **vider la partition du mois en `raw` ET la même `(ligne, mois)` en `staging`**, puis réécrire `raw` ; si MD5 identique → ne rien faire. La purge de `staging` force son recalcul par le DAG aval (règle 14).
+12. **Le fichier est copié tel quel** (byte-identique) dans sa partition — **pas de transformation ni de scission** en `raw`. Conforme au brief (« uploader les CSV » + « vérifier l'intégrité des fichiers déposés »). **Garde-fou impératif** : tous les `timestamp` du fichier dans le **même mois**, sinon **échec**. **(Ré)import idempotent (MD5) + cascade** : si le MD5 local diffère de l'objet `raw` (ou absent) → **vider la partition du mois en `raw`, la même `(ligne, mois)` en `staging` ET en `curated`** (`curated` dérivant de `staging`), puis réécrire `raw` ; si MD5 identique → ne rien faire. La purge de `staging` (et de `curated`) force leur recalcul par les DAGs aval (règle 14).
 
 > **Note (raw vs aval) :** `raw` = **copie du fichier brut**, partitionné au **mois** (aucune transformation). `staging`/`curated` sont partitionnés au **jour** (`…/day=DD/`, `day` dérivé du `timestamp`) et le DAG `raw → staging` traite **un jour à la fois** (fil de l'eau, cf. §11). Le **typage et l'harmonisation** (règles 4‑8) n'interviennent qu'en `staging`.
 
