@@ -105,3 +105,20 @@ def test_md5_failure_does_not_touch_staging(
     assert not res.ok and res.statut == "ÉCHEC MD5"
     # staging intact (ordre sûr : on n'invalide pas l'aval si raw n'est pas confirmé) :
     assert list_keys(fake_s3, "staging", "production_lines/lineA/year=2025/month=05/")
+
+
+def test_reimport_invalide_aussi_curated(tmp_path: Path, fake_s3: FakeS3) -> None:
+    f = _line_csv(tmp_path / "LineA_Stable_10K.csv")
+    # un dérivé existe dans curated pour la même (ligne, mois) :
+    fake_s3.put_object(
+        Bucket="curated",
+        Key="production_lines/line=lineA/year=2025/month=05/day=01/part.parquet",
+        Body=io.BytesIO(b"derive"),
+    )
+    # raw contient une ANCIENNE version (MD5 différent) -> ré-import :
+    key = "production_lines/lineA/year=2025/month=05/LineA_Stable_10K.csv"
+    fake_s3.put_object(Bucket="raw", Key=key, Body=io.BytesIO(b"ancien"))
+    res = ingestion.ingest_file(f, client=fake_s3)
+    assert res.ok and res.statut == "ré-importé"
+    # curated de la (ligne, mois) vidé par la cascade :
+    assert list_keys(fake_s3, "curated", "production_lines/line=lineA/year=2025/month=05/") == []

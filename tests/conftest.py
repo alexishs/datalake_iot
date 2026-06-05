@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 from typing import BinaryIO
 
 import pytest
@@ -30,6 +31,11 @@ class FakeS3:
         if (Bucket, Key) not in self.store:
             raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
         return {"ETag": '"' + hashlib.md5(self.store[(Bucket, Key)]).hexdigest() + '"'}
+
+    def get_object(self, Bucket: str, Key: str) -> dict:
+        if (Bucket, Key) not in self.store:
+            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "Not Found"}}, "GetObject")
+        return {"Body": io.BytesIO(self.store[(Bucket, Key)])}
 
     def list_objects_v2(self, Bucket: str, Prefix: str = "", **kwargs: object) -> dict:
         keys = sorted(k for (b, k) in self.store if b == Bucket and k.startswith(Prefix))
