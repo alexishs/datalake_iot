@@ -41,5 +41,13 @@ mc admin policy attach local data-engineer --user "$MINIO_ENGINEER_USER" 2>/dev/
 mc admin user add local "$MINIO_ADMIN_USER" "$MINIO_ADMIN_PASSWORD" 2>/dev/null || true
 mc admin policy attach local consoleAdmin --user "$MINIO_ADMIN_USER" 2>/dev/null || true
 
+# --- Cycle de vie (ILM) : suppression des objets archivés après ~2 ans (730 j) ---
+# Fondé sur l'ÂGE DES OBJETS (date d'upload). Nos objets datant de 2026, la règle
+# est configurée mais ne se déclenchera pas avant ~2 ans (documenté, non démontrable).
+# rm --all puis add -> idempotent (relançable sans empiler les règles).
+mc ilm rule rm --all --force local/archive 2>/dev/null || true
+mc ilm rule add local/archive --expire-days 730
+echo "ILM : expiration 730 j configurée sur archive/."
+
 echo "MinIO prêt : buckets raw/staging/curated/archive + comptes data-analyst (RO curated),"
 echo "             data-engineer (RW raw/staging/curated), admin (tous droits)."
