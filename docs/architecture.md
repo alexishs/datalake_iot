@@ -19,12 +19,10 @@ flowchart LR
         RAW[("raw/<br/>CSV tel quel<br/>partition : mois · MD5")]
         STG[("staging/<br/>Parquet harmonisé<br/>partition : jour")]
         CUR[("curated/<br/>Parquet unifié (+ line)<br/>partition : jour")]
-        ARC[("archive/<br/>expirées (ILM)")]
+        ARC[("archive/<br/>DAG archivage · expiration ILM")]
         RAW -->|"DAG 2 harmonisation<br/>fil de l'eau : 1 jour / min"| STG
         STG -->|"DAG 3 consolidation<br/>(hors énoncé, assumé)"| CUR
-        RAW -.->|"ILM 180 j / 2 ans"| ARC
-        STG -.-> ARC
-        CUR -.-> ARC
+        RAW -.->|"DAG archivage (> seuil)<br/>puis expiration ILM (2 ans)"| ARC
     end
 
     CSV -->|"ingestion : script boto3 +<br/>DAG 1 + MD5 · partition mois"| RAW
@@ -43,7 +41,7 @@ flowchart LR
 - **Stockage objet** : MinIO (compatible S3), 4 buckets = 4 couches.
 - **Orchestration** : Airflow — **3 DAGs** : (1) **ingestion brute** → `raw`, (2) **harmonisation** → `staging`, (3) **consolidation** → `curated`. Les 2 premiers sont **requis par le brief** ; le 3ᵉ est une **décision** (cf. §11).
 - **Catalogue / gouvernance** : OpenMetadata (fiches, propriétaires, qualité).
-- **Cycle de vie** : règles ILM MinIO (archivage puis suppression).
+- **Cycle de vie** : DAG `archivage` (`raw → archive/`, purge des dérivés) puis expiration par règle ILM MinIO (cf. §8).
 
 ## 3. Architecture en couches
 
@@ -52,7 +50,7 @@ flowchart LR
 | **raw/** | données brutes *telles que reçues*, jamais modifiées | CSV d'origine **copié tel quel** (byte-identique) | `production_lines/lineX/`<br/>`year=YYYY/month=MM/` | DAG ingestion → DAG harmonisation |
 | **staging/** | données **nettoyées & harmonisées** | schéma unifié, **Parquet** | `production_lines/lineX/`<br/>`year=YYYY/month=MM/day=DD/` | DAG harmonisation → consolidation |
 | **curated/** | données **prêtes à l'analyse** | table **unifiée** des 5 lignes (+ colonne `line`), **Parquet** | `production_lines/line=lineX/`<br/>`year=YYYY/month=MM/day=DD/` | DAG consolidation → `data-analyst`, futurs modèles ML |
-| **archive/** | données **expirées** | objets déplacés par l'ILM | conservé tel quel | cycle de vie automatique |
+| **archive/** | données **archivées** puis expirées | objets déplacés depuis `raw` par le **DAG `archivage`** ; expiration par l'**ILM** | miroir du chemin `raw` | DAG `archivage` → expiration ILM |
 
 ### 3.1 `raw/` — zone d'atterrissage
 - Copie **fidèle** des CSV sources : on n'y corrige **rien** (casse des colonnes, formats hétérogènes conservés). C'est la « source de vérité » rejouable.
@@ -76,9 +74,9 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 - Partitionnée au **jour** également (`…/day=DD/`), cohérente avec `staging`.
 - Peuplée par un **3ᵉ DAG `staging → curated`** (« consolidation »). ⚠️ **Non demandé par l'énoncé** (qui ne requiert que 2 DAGs : ingestion + harmonisation) ; **décision prise** pour **rester cohérent avec la gestion du flux** déjà en place en amont — *une couche = un DAG dédié*, pour un pipeline homogène et idempotent de bout en bout (cf. §11).
 
-### 3.4 `archive/` — expiration
-- Alimenté **automatiquement** par les règles ILM de MinIO (pas de DAG dédié).
-- Politique : **archivage après 180 jours**, **suppression après 2 ans** (cf. C20).
+### 3.4 `archive/` — archivage & expiration
+- Alimenté par le **DAG `archivage`** (`raw → archive/`, copie en miroir du chemin), qui **purge** ensuite `staging`/`curated` pour la même `(ligne, mois)` — l'**ILM MinIO ne gère que l'expiration**, pas ce transfert local de bucket à bucket (cf. §8).
+- Politique : **archivage après 180 j** (seuil sur la **date des données** ; **démo : 18 mois**), puis **suppression après 2 ans** via une **règle ILM d'expiration** (fondée sur l'**âge des objets**). Détail en C20 (cf. §8).
 
 ## 4. Partitionnement
 
@@ -119,15 +117,23 @@ Transformations appliquées (cf. schéma cible §6 et contrat §12) :
 - **Buckets** : `raw`, `staging`, `curated`, `archive` (un par couche).
 - **Partitions** : `key=value` (Hive) pour `year`/`month`/`day` (les 3 couches). Pour la ligne : segment simple `lineX` en **raw/staging** (organisation par source, conforme au brief), mais `line=lineX` en **Hive** en **curated** (table **unifiée** → `line` devient une partition). Racine `production_lines/` homogène partout. `raw` au **mois**, `staging`/`curated` au **jour**.
 
-## 8. Cycle de vie des données (ILM)
+## 8. Cycle de vie des données
 
-| Étape | Délai | Action MinIO |
+Deux jalons, **deux mécanismes distincts** (et non une seule règle ILM) :
+
+| Étape | Seuil | Mécanisme |
 |---|---|---|
 | Données actives | 0–180 j | conservées en `raw`/`staging`/`curated` |
-| Archivage | > 180 j | transition vers `archive/` |
-| Suppression | > 2 ans | expiration (suppression définitive) |
+| **Archivage** (> seuil) | sur la **date des données** — politique : **180 j** ; **démo : 18 mois** | **DAG `archivage`** : `raw → archive/` (copie miroir) puis **purge** de `staging`/`curated` pour la même `(ligne, mois)` — **pas** l'ILM |
+| **Suppression** (> 2 ans) | sur l'**âge de l'objet** (date d'upload) — **730 j** | **règle ILM MinIO d'expiration** posée sur `archive/` |
 
-*(Configuration détaillée et captures : livrable C20.)*
+**Pourquoi le DAG et non l'ILM pour l'archivage ?** L'ILM MinIO ne sait faire que l'**expiration** (suppression native) ou la **transition vers un tier distant** ; il n'existe **aucun transfert local de bucket à bucket**. « Archiver vers `archive/` en local » n'est donc pas exprimable en ILM (cf. doc MinIO), d'où un **DAG dédié**. L'ILM reste employé pour l'**expiration** — la seule opération de cycle de vie que l'énoncé nomme explicitement.
+
+**Réintégration.** Recopier un objet de `archive/` vers `raw/` relance le **filigrane** (cf. §3.2) : le DAG d'harmonisation voit le jour absent de `staging` et **recalcule** `staging` puis `curated` — aucune action manuelle sur les couches dérivées.
+
+**Écarts assumés (démo).** La démo archive avec un seuil de **18 mois** (au lieu de 180 j) pour n'archiver **que janvier 2025** à ~mi-2026 (un seuil de 180 j appliqué à la date des données archiverait tout 2025). La suppression **730 j / âge d'objet** est **configurée mais non déclenchable** ici (objets datés de 2026).
+
+*(Politique complète, procédure et vérifications : [gouvernance-cycle-de-vie.md](gouvernance-cycle-de-vie.md), livrable C20.)*
 
 ## 9. Sécurité & gouvernance (aperçu — détail en C21)
 

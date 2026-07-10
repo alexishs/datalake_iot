@@ -10,11 +10,13 @@ from botocore.exceptions import ClientError
 
 
 class FakeS3:
-    """Client S3 minimal en mémoire : put / head / list / delete.
+    """Client S3 minimal en mémoire : put / head / get / copy / list / delete.
 
     Imite le strict nécessaire de l'API boto3 utilisée par le code :
     - put_object renvoie un ETag = MD5 du contenu (comme un upload simple MinIO) ;
     - head_object lève botocore ClientError si la clé est absente ;
+    - copy_object copie le contenu d'une clé source vers une clé destination
+      (simule une copie serveur, sans transfert local) ;
     - list_objects_v2 filtre par préfixe (sans pagination) ;
     - delete_objects supprime les clés données.
     """
@@ -36,6 +38,11 @@ class FakeS3:
         if (Bucket, Key) not in self.store:
             raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "Not Found"}}, "GetObject")
         return {"Body": io.BytesIO(self.store[(Bucket, Key)])}
+
+    def copy_object(self, Bucket: str, Key: str, CopySource: dict) -> dict:
+        src = (CopySource["Bucket"], CopySource["Key"])
+        self.store[(Bucket, Key)] = self.store[src]
+        return {"CopyObjectResult": {}}
 
     def list_objects_v2(self, Bucket: str, Prefix: str = "", **kwargs: object) -> dict:
         keys = sorted(k for (b, k) in self.store if b == Bucket and k.startswith(Prefix))

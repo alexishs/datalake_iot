@@ -1,0 +1,43 @@
+# =============================================================================
+#  C20 — Ingestion des pipelines Airflow (métier) + lignage dans OpenMetadata.
+#
+#  Le connecteur Airflow lit les DAGs **sérialisés** dans la base Postgres de
+#  l'Airflow métier (table serialized_dag) : il catalogue les 4 DAGs comme
+#  *Pipelines* et déduit le **lignage** entre conteneurs à partir des
+#  annotations `inlets`/`outlets` (cf. dags/_om_lineage.py).
+#
+#  Config-as-code ; secrets ${...} substitués à l'exécution par run-pipelines.sh.
+#  Noms d'hôte = réseau Docker `datalake`.
+# =============================================================================
+source:
+  type: airflow
+  serviceName: datalake_airflow
+  serviceConnection:
+    config:
+      type: Airflow
+      # UI de l'Airflow métier (référencée par les fiches Pipeline).
+      hostPort: http://airflow-webserver:8080
+      numberOfStatus: 10
+      # Base backend d'Airflow (Postgres mutualisé) : source des DAGs sérialisés.
+      connection:
+        type: Postgres
+        username: ${AIRFLOW_DB_USER}
+        authType:
+          password: ${AIRFLOW_DB_PASSWORD}
+        hostPort: postgres:5432
+        database: ${AIRFLOW_DB}
+  sourceConfig:
+    config:
+      type: PipelineMetadata
+      # Déduit le lignage raw→staging→curated + raw→archive depuis inlets/outlets.
+      includeLineage: true
+sink:
+  type: metadata-rest
+  config: {}
+workflowConfig:
+  loggerLevel: INFO
+  openMetadataServerConfig:
+    hostPort: http://openmetadata-server:8585/api
+    authProvider: openmetadata
+    securityConfig:
+      jwtToken: ${OPENMETADATA_JWT_TOKEN}

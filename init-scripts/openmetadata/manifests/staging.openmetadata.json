@@ -1,0 +1,9 @@
+{
+  "entries": [
+    { "dataPath": "production_lines/lineA", "structureFormat": "parquet", "isPartitioned": true },
+    { "dataPath": "production_lines/lineB", "structureFormat": "parquet", "isPartitioned": true },
+    { "dataPath": "production_lines/lineC", "structureFormat": "parquet", "isPartitioned": true },
+    { "dataPath": "production_lines/lineD", "structureFormat": "parquet", "isPartitioned": true },
+    { "dataPath": "production_lines/lineE", "structureFormat": "parquet", "isPartitioned": true }
+  ]
+}
