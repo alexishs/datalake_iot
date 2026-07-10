@@ -137,9 +137,10 @@ Deux jalons, **deux mécanismes distincts** (et non une seule règle ILM) :
 
 ## 9. Sécurité & gouvernance (aperçu — détail en C21)
 
-- **3 rôles différenciés** : `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/` + `staging/` + `curated/`), `admin` (tous droits). **Policies initiales déjà en place** (C19) : créées par le job `minio-init` via des policies IAM personnalisées restreintes par bucket — voir [init-scripts/minio/](../init-scripts/minio/) (`setup.sh` + `policies/*.json`).
-- **Chiffrement SSE-S3** sur les buckets de production (C21).
-- **Logs d'audit** MinIO activés et analysés (C21).
+- **3 comptes différenciés** : `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur les **4 buckets**, `archive/` compris — il porte le cycle de vie), `datalake-admin` (tous droits). Policies IAM personnalisées restreintes par bucket, créées par le job `minio-init` — voir [init-scripts/minio/](../init-scripts/minio/) (`setup.sh` + `policies/*.json`).
+- **Chiffrement SSE-S3** au repos sur les **4 buckets**, via le KMS intégré de MinIO (C21).
+- **Logs d'audit** : **non activés** (choix assumé, documenté en évolution possible).
+- *Matrice des droits, conditions et responsabilités : [gouvernance-acces-securite.md](gouvernance-acces-securite.md) (livrable C21).*
 
 ## 10. Justification des choix (volumétrie & fréquence)
 

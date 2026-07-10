@@ -2,6 +2,24 @@
 
 Data lake pour la centralisation, la documentation et la gouvernance de données de capteurs issues de 5 lignes de production, en vue d'un futur projet de maintenance prédictive. Projet pédagogique — le brief complet est dans [ennonce.md](ennonce.md), les règles de travail dans [CLAUDE.md](CLAUDE.md).
 
+## Sommaire
+
+**Ce README :** [Livrables & progression](#livrables--progression-c18c21) · [Architecture en couches](#architecture-en-couches) · [La stack](#la-stack) · [Prérequis](#prérequis) · [Démarrage](#démarrage) · [Exécution du code Python](#exécution-du-code-python) · [Explorer en SQL (DuckDB)](#explorer-les-données-en-sql-duckdb) · [Catalogue OpenMetadata](#cataloguer-le-data-lake-openmetadata) · [Sécurité & gouvernance](#sécurité--gouvernance-c21) · [Dépendances Python](#dépendances-python-requirementstxt) · [Structure du dépôt](#structure-du-dépôt) · [Notes & dépannage](#notes--dépannage) · [Arrêt](#arrêt)
+
+**Documentation du projet :**
+
+| Document | Contenu |
+|---|---|
+| [ennonce.md](ennonce.md) | Le **brief** (énoncé E7) — fait foi. |
+| [docs/architecture.md](docs/architecture.md) | **Architecture** en couches, partitionnement, schéma annoté, contrat d'implémentation (C18). |
+| [docs/gouvernance-cycle-de-vie.md](docs/gouvernance-cycle-de-vie.md) | Politique de **cycle de vie** : archivage `raw→archive` par DAG + expiration ILM (C20). |
+| [docs/gouvernance-acces-securite.md](docs/gouvernance-acces-securite.md) | **Matrice des droits** + politique de gouvernance & chiffrement SSE-S3 (C21). |
+| [init-scripts/openmetadata/README.md](init-scripts/openmetadata/README.md) | Procédure d'ingestion du **catalogue OpenMetadata** (config-as-code) — conteneurs, fiches, lignage. |
+| [docs/captures-openmetadata/README.md](docs/captures-openmetadata/README.md) | Index des **captures d'écran** du catalogue OpenMetadata. |
+| [rapport/rapport.md](rapport/rapport.md) | **Rapport professionnel** : synthèse (contexte, auto-évaluation par compétence, annexes) — consolidation du journal (C18–C21). |
+| [rapport/journal.md](rapport/journal.md) | **Journal de réalisation** au fil de l'eau : activités, notions et choix par date réelle (C18–C21). |
+| [CLAUDE.md](CLAUDE.md) | Règles de travail du projet (nature pédagogique, stack imposée, conventions). |
+
 ## Livrables & progression (C18–C21)
 
 Index des livrables par compétence / jour. ✅ produit · ◐ en cours · ⏳ à venir.
@@ -127,10 +145,10 @@ Le job `minio-init` ([init-scripts/minio/](init-scripts/minio/)) crée, en plus 
 | Compte | `raw/` | `staging/` | `curated/` | `archive/` |
 |---|---|---|---|---|
 | `data-analyst` | — | — | **lecture** | — |
-| `data-engineer` | lecture/écriture | lecture/écriture | lecture/écriture | — |
+| `data-engineer` | lecture/écriture | lecture/écriture | lecture/écriture | lecture/écriture |
 | `datalake-admin` | tous droits | tous droits | tous droits | tous droits |
 
-> Étape C19 (« policies d'accès initiales selon bucket »). Le chiffrement SSE-S3, les logs d'audit et la matrice de gouvernance écrite relèvent du C21. `archive/` n'est attribué à aucun rôle (géré par l'ILM).
+> Policies IAM personnalisées par bucket (les policies intégrées porteraient sur *tous* les buckets). `data-analyst` en lecture seule sur `curated/`. `data-engineer` couvre les 4 couches, `archive/` compris — il porte le **cycle de vie** (archivage + réintégration). Le **chiffrement SSE-S3** (C21) est actif sur les 4 buckets ; matrice complète, conditions et responsabilités : [docs/gouvernance-acces-securite.md](docs/gouvernance-acces-securite.md). *(Les logs d'audit ne sont pas activés — choix assumé, documenté en évolution possible.)*
 
 ## Exécution du code Python
 
@@ -274,9 +292,11 @@ raw.lineE ─(archivage)─▶ archive.lineE
 >
 > **Non-invasif** : le catalogue est **observationnel**. La seule touche au code des DAGs est l'ajout d'annotations `inlets`/`outlets` (métadonnées de lignage, aucun effet d'exécution — cf. [dags/_om_lineage.py](dags/_om_lineage.py)).
 
+**Captures d'écran** (service et conteneurs, fiches enrichies, hétérogénéité des schémas, pipelines, lignage) : [docs/captures-openmetadata/](docs/captures-openmetadata/) — voir l'[index commenté](docs/captures-openmetadata/README.md).
+
 ## Sécurité & gouvernance (C21)
 
-- **Droits par bucket** : 3 comptes de service (`data-analyst` lecture seule sur `curated` ; `data-engineer` lecture/écriture sur les 4 buckets ; `admin` tous droits), créés par [init-scripts/minio/setup.sh](init-scripts/minio/setup.sh).
+- **Droits par bucket** : 3 comptes de service (`data-analyst` lecture seule sur `curated` ; `data-engineer` lecture/écriture sur les 4 buckets ; `datalake-admin` tous droits), créés par [init-scripts/minio/setup.sh](init-scripts/minio/setup.sh).
 - **Chiffrement au repos SSE-S3** sur les 4 buckets, via le KMS intégré de MinIO (`MINIO_KMS_SECRET_KEY`) — transparent pour les clients. Vérifier : `mc encrypt info local/<bucket>`.
 - **Politique complète** (matrice des droits, conditions, responsabilités) : [docs/gouvernance-acces-securite.md](docs/gouvernance-acces-securite.md).
 
@@ -324,12 +344,12 @@ Dockerfile.dev       image du conteneur de dev
 .devcontainer/       config Dev Containers (extensions debug auto)
 .vscode/             launch.json (debug)
 .env.example         variables (copier en .env)
-init-scripts/        init Postgres mutualisé (3 bases isolées)
+init-scripts/        init Postgres (3 bases) + MinIO (buckets, comptes, chiffrement) + OpenMetadata (ingestion catalogue)
 datalake/            PACKAGE métier (boto3, ingestion, harmonisation)
 dags/                DAGs Airflow (appellent datalake)
 notebooks/           exploration des données (Jour 1, C18)
 data/                CSV bruts (non versionnés)
-docs/                architecture.md (C18), gouvernance/ILM (C20/C21), captures
+docs/                architecture.md (C18), gouvernance/ILM (C20/C21), captures OpenMetadata
 rapport/             rapport final (≥ 5 pages)
 ```
 

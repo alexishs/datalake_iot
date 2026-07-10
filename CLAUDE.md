@@ -18,7 +18,9 @@ Quatre documents structurent le projet — s'y reporter en priorité (et les ten
 - [ennonce.md](ennonce.md) — le **brief** (énoncé E7) ; **à lire systématiquement**, il fait foi (ne pas en modifier le fond).
 - [README.md](README.md) — **installation et utilisation** : stack Docker, reproduction de l'environnement, exécution du code Python.
 - [docs/architecture.md](docs/architecture.md) — **principales spécifications** : architecture en couches, partitionnement, schéma cible et contrat d'implémentation (C18).
-- [rapport/rapport.md](rapport/rapport.md) — **synthèse globale** de ce qui est réalisé, alimentée à la fin de chaque « jour » (cf. règle 6 ci-dessous).
+- [rapport/rapport.md](rapport/rapport.md) — **synthèse globale** (consolidation : contexte, auto-évaluation, annexes),
+  adossée au journal [rapport/journal.md](rapport/journal.md) — le **journal de réalisation** alimenté à la fin de
+  chaque « jour » (activités, notions, choix justifiés). Cf. règle 6 ci-dessous.
 
 ## Objectif
 
@@ -65,22 +67,24 @@ Partitionnement raw imposé : `raw/production_lines/lineX/year=YYYY/month=MM/...
 2. **Reproductibilité** : tout doit pouvoir être relancé par un tiers via Docker Compose + README.
    Documenter chaque procédure.
 3. **Intégrité** : vérifier les fichiers ingérés (hash MD5).
-4. **Sécurité & gouvernance** (C21) : 3 rôles strictement différenciés
-   (`data-analyst` lecture seule sur `curated/`, `data-engineer` lecture/écriture sur
-   `raw/` + `staging/` + `curated/`, `admin` tous droits), chiffrement SSE-S3, logs d'audit.
+4. **Sécurité & gouvernance** (C21) : 3 comptes strictement différenciés
+   (`data-analyst` lecture seule sur `curated/`, `data-engineer` lecture/écriture sur les **4 buckets**
+   — `archive/` inclus, ce rôle portant le cycle de vie —, `datalake-admin` tous droits) ;
+   **chiffrement SSE-S3** au repos. *(Écarts assumés vs énoncé, documentés dans le journal/rapport :
+   `data-engineer` étendu à `archive/` ; logs d'audit non activés — surcoût d'infra non retenu.)*
 5. **Pas de secrets en clair commités** : credentials via variables d'environnement / `.env`
    (non versionné). Les identifiants `minioadmin/minioadmin` de l'énoncé sont des valeurs de
    démo locale uniquement.
 6. **Documenter au fil de l'eau** (exigé) : chaque livrable a une trace écrite produite au moment
    où le travail est fait (README, procédure d'intégration, doc de gouvernance, politique ILM).
-   - **Mettre à jour le rapport à la fin de chaque « jour » de l'énoncé** (Jour 1, Jour 2,
-     Jours 3-4, Jour 5, Jours 6-7) : consigner dans `rapport/rapport.md` les **activités** réalisées,
+   - **Tenir le journal à la fin de chaque « jour » de l'énoncé** (Jour 1, Jour 2,
+     Jours 3-4, Jour 5, Jours 6-7) : consigner dans `rapport/journal.md` les **activités** réalisées,
      les **notions** abordées et les **choix justifiés** (le *quoi* et le *pourquoi*).
-   - *(L'énoncé n'exige formellement que le rapport final de fin de Jour 8 ; cette cadence — une mise
-     à jour par « jour » — est une **règle de travail adoptée pour ce projet**, afin de ne pas tout
-     rédiger le dernier jour.)*
-   - Le **rapport final** (≥ 5 pages, Jour 8) est la **consolidation et la mise au propre** de ces
-     mises à jour, exporté en PDF.
+   - *(L'énoncé n'exige formellement que le rapport final de fin de Jour 8 ; cette cadence — une
+     entrée de journal par « jour » — est une **règle de travail adoptée pour ce projet**, afin de
+     ne pas tout rédiger le dernier jour.)*
+   - Le **rapport** `rapport/rapport.md` est la **consolidation et la mise au propre** du journal
+     (synthèse + auto-évaluation) ; version finale ≥ 5 pages au Jour 8, exportée en PDF.
 7. **Langue** : documentation et rapport en français. **Vouvoiement obligatoire** dans tous les
    fichiers (README, docs, commentaires de code, rapport) comme dans les échanges — jamais de
    tutoiement.
@@ -101,12 +105,12 @@ Dockerfile.dev       ← image du conteneur de dev (VSCode s'y attache)
 .devcontainer/       ← config Dev Containers (extensions debug auto)
 .vscode/             ← launch.json (debug)
 .env.example         ← variables (copier en .env ; AUCUN nom d'hôte dedans)
-init-scripts/        ← init Postgres mutualisé (3 bases isolées)
+init-scripts/        ← init Postgres (3 bases) + MinIO (buckets, comptes, chiffrement) + OpenMetadata
 datalake/            ← PACKAGE métier (boto3, ingestion, harmonisation)
 dags/                ← DAGs Airflow : coquilles fines qui importent `datalake`
 data/                ← CSV bruts téléchargés (non versionnés si volumineux)
 docs/                ← architecture, gouvernance, ILM, captures
-rapport/             ← rapport final (≥ 5 pages)
+rapport/             ← rapport (synthèse, ≥ 5 pages) + journal (fil-de-l'eau)
 ```
 
 **Règle code/orchestration :** toute la logique métier vit dans le package

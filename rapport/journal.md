@@ -1,0 +1,140 @@
+# Journal de réalisation — Data Lake IoT industriel (E7)
+
+> Journal tenu **au fil de l'eau**, par **date réelle** de travail (cf. [CLAUDE.md](../CLAUDE.md), règle 6) : activités menées, notions abordées et choix justifiés à chaque étape. La chronologie réelle diffère volontairement du découpage « Jour 1…8 » de l'énoncé (voir le [rapport](rapport.md) §1) ; la compétence (C18–C21) est indiquée en étiquette de chaque entrée. Le [rapport](rapport.md) en est la **consolidation** (synthèse + auto-évaluation).
+
+## 2 juin 2026 — Socle technique (transverse, prérequis)
+
+**Activités.** Mise en place d'un unique `docker compose` réunissant **tous les conteneurs** — MinIO (+ création des buckets), Postgres mutualisé, l'Airflow métier, OpenMetadata (serveur, ingestion, Elasticsearch) et un **conteneur de développement** où le code s'exécute *dans* le réseau Docker (mêmes noms d'hôte qu'en production) — **en respectant strictement les technologies demandées** par le brief.
+
+**Choix justifiés — maîtrise du nombre de conteneurs.** Plusieurs décisions limitent la prolifération :
+
+- **Postgres mutualisé** : un **seul** conteneur héberge **3 bases isolées** (Airflow métier, Airflow interne d'OpenMetadata, catalogue OpenMetadata) — au lieu de 3 conteneurs. Utilisateurs et bases séparés pour préserver l'isolation (gain de ressources sans couplage fonctionnel).
+- **Airflow en `LocalExecutor`** (et non `CeleryExecutor`) : **pas** de broker Redis, ni de workers Celery, ni de Flower → plusieurs conteneurs évités par instance Airflow.
+- **Jobs *one-shot*** (création des buckets, init Airflow, migration OpenMetadata) : conteneurs **éphémères** qui s'exécutent puis s'arrêtent (`Exited 0`), sans alourdir durablement la stack.
+- **Périmètre minimal** : uniquement les briques de la stack imposée — aucun service annexe (pas de pgAdmin, Flower, proxy…).
+
+**Limite assumée à la mutualisation** : les **2 Airflow restent séparés** (métier vs ingestion d'OpenMetadata). Mutualiser Postgres est un gain net ; mutualiser Airflow aurait introduit un **couplage fragile** pour un bénéfice faible — donc **non retenu** (cf. [docs/architecture.md](../docs/architecture.md)).
+
+## 3 juin 2026 — C18 : analyse des données & architecture (Jour 1 de l'énoncé)
+
+**Activités réalisées.**
+
+- **Téléchargement des sources** : récupération des 5 CSV depuis Zenodo via son **API REST**, avec **vérification d'intégrité MD5** et idempotence ([datalake/download.py](../datalake/download.py)).
+- **Exploration** des 5 lignes (volumétrie, schémas, types, distribution du `label`, couverture temporelle) au moyen de fonctions réutilisables ([datalake/explore.py](../datalake/explore.py)) pilotées depuis un notebook.
+- **Modélisation** de l'architecture en couches et **schéma technique annoté** ([docs/architecture.md](../docs/architecture.md)) ; **index des livrables** (README) et squelette de ce rapport.
+
+**Analyse des données & hétérogénéités identifiées.** Constats clés (30 000 enregistrements, 1 relevé/minute, janvier→mai 2025, ~1 % d'anomalies) :
+
+- **Casse des colonnes non uniforme** (et parfois incohérente au sein d'un fichier) : `Temperature`/`temperature`, `Pressure`/`pressure`, `Elapsed_time`/`elapsed_time`.
+- **`elapsed_time` optionnel** : présent uniquement sur Line A et Line B.
+- **`timestamp`** au format `YYYY-MM-DD HH:MM:SS` (non ISO-8601, sans fuseau), cadence régulière d'1 minute, **continu** (ni trou ni doublon).
+- **`label`** binaire {0, 1} (0 = nominal, 1 = anomalie), **fortement déséquilibré** (~1 %).
+- **Écart documentation ↔ données** : LineE annoncée « 0 % d'anomalies » mais en contient 0,5 % — *la donnée fait foi*, à tracer comme avertissement qualité.
+- **Un fichier source = un seul mois** (vérifié) : déterminant pour le partitionnement.
+
+**Modélisation de l'architecture & choix justifiés.** Architecture en **4 couches** (raw → staging → curated → archive). Principaux choix (détail dans [docs/architecture.md](../docs/architecture.md)) :
+
+- **Partitionnement à deux granularités** : `raw` au **mois** (permet de déposer les fichiers *tels quels* + MD5) ; `staging`/`curated` au **jour**, avec un traitement **au fil de l'eau** (un jour à la fois) qui simule un flux temps réel.
+- **Formats** : CSV en `raw` (fidélité à la source), **Parquet** en aval (typé, compressé, colonnaire — adapté à l'analytique et au ML).
+- **Schéma cible unifié** harmonisant les hétérogénéités (minuscules, `timestamp` ISO-8601, `elapsed_time` en `NULL` si absent) ; **clé naturelle `(line, timestamp)`** garantissant l'idempotence.
+- **3 DAGs** (ingestion → harmonisation → consolidation) ; le 3ᵉ (`staging → curated`) n'est pas exigé par l'énoncé mais **assumé** pour la cohérence du flux.
+- **Schéma en Mermaid** (diagramme-as-code, versionnable, rendu sur GitHub) plutôt que draw.io.
+
+**Notions abordées.** Architecture en couches d'un data lake ; partitionnement (style Hive) et son lien avec volumétrie/fréquence ; **idempotence** et clé naturelle ; **intégrité** par hash MD5 ; gestion des valeurs manquantes (**`null` natif Polars**, distinct de `NaN` tel que géré par Pandas) ; **déséquilibre de classes** (enjeu central de la détection d'anomalies) ; gouvernance des métadonnées (réconcilier doc et données) ; diagramme-as-code.
+
+## 4 juin 2026 — C19 : ingestion brute + policies d'accès (Jour 2 de l'énoncé)
+
+**Activités réalisées.**
+
+- **Ingestion `data/` → `raw/`** : module réutilisable [datalake/ingestion.py](../datalake/ingestion.py) (appelé par le CLI `python -m datalake.ingestion` et, à terme, par le DAG d'ingestion) — dépôt byte-identique, partition au mois, **vérification MD5** (ETag), **idempotence** (skip si MD5 identique) et **cascade** d'invalidation de `staging`. Mécanique mutualisée via [datalake/runner.py](../datalake/runner.py). Vérifié sur MinIO réel (5 fichiers déposés, mois 01→05, idempotence confirmée). *(Buckets, upload boto3, MD5 = exigences Jour 2 ✅.)*
+- **Policies d'accès par bucket** : le job `minio-init` crée 3 comptes de service aux droits différenciés au moyen de **policies IAM personnalisées** (restreintes à des ARN de buckets précis, là où les policies intégrées de MinIO porteraient sur *tous* les buckets) — `data-analyst` (lecture seule sur `curated/`), `data-engineer` (lecture/écriture sur `raw/`+`staging/`+`curated/`), `datalake-admin` (tous droits). Droits **vérifiés** (un compte ne peut agir hors de son périmètre). Script et JSON versionnés dans [init-scripts/minio/](../init-scripts/minio/). *(Réalise l'exigence Jour 2 « policies d'accès initiales selon bucket » ✅ et, par anticipation, la **gestion des comptes du C21**.)*
+- **Qualité & outillage** : migration de pandas vers **Polars** (Arrow-natif, `null` distinct de `NaN`) ; config **ruff + pytest unifiée** dans `pyproject.toml` (règles `E,W,F,I,UP,B,ANN`) ; **typage strict** des paramètres (client boto3 = `botocore.client.BaseClient`) ; développement en **TDD** avec un faux client S3 en pur Python.
+
+**Notions abordées.** Modèle **IAM/policies S3** (actions, ressources/ARN, distinction bucket vs objets) et **RBAC** (utilisateur → policy → buckets) ; `ETag = MD5` d'un upload simple ; **idempotence** d'un pipeline et **cascade** d'invalidation ; **TDD** et injection de dépendance (client S3 factice) ; typage statique et linting.
+
+## 5 juin 2026 — C19 : DAGs du pipeline (Jours 3-4)
+
+**Activités réalisées.**
+
+- **3 DAGs Airflow** en **coquilles fines** réutilisant le package : [ingestion_raw](../dags/) (data → raw, déclenché manuellement), [harmonisation_staging](../dags/) et [consolidation_curated](../dags/) (toutes les minutes, **une journée par exécution**) — zéro logique métier dans les DAGs, qui se contentent d'appeler les fonctions du package depuis des `PythonOperator`.
+- **Nouveaux modules métier** : [datalake/harmonization.py](../datalake/harmonization.py) (raw → staging : normalisation de la **casse** des colonnes, `timestamp` **ISO 8601**, `elapsed_time` **nullable**, écriture **Parquet**, **partition au jour**, dédoublonnage) et [datalake/consolidation.py](../datalake/consolidation.py) (staging → curated : **table unifiée** avec colonne `line=`).
+- **Fil-de-l'eau** : le **filigrane** est **auto-réparant** — il désigne le plus ancien `(ligne, jour)` présent en amont mais absent en aval ; un trou (créé par la cascade) redevient simplement le prochain jour traité, sans intervention.
+- **Cascade `raw → staging → curated`** : un réimport `raw` d'une `(ligne, mois)` vide `staging` **ET** `curated` pour cette période → recalcul automatique des deux couches aval via leurs filigranes.
+- **Tests** : développement en **TDD pur Python** (faux client S3 + Polars, relecture des Parquet écrits pour vérifier le contenu) ; les DAGs (coquilles) sont validés par un contrôle d'intégrité **DagBag** exécuté dans le conteneur Airflow.
+- **Vérification de bout en bout** sur MinIO réel : **23 partitions** `staging` puis **23** `curated` produites ; auto-réparation confirmée via `airflow dags test` (suppression d'une partition → recréée à l'exécution suivante).
+- **Exploration des données livrées (SQL, DuckDB)** : interrogation du **contenu** de `curated` en SQL via **DuckDB** — en ligne de commande **et** via l'interface **DBeaver** (moteur embarqué, lecture seule) — directement sur les Parquet de MinIO (extension `httpfs`/S3, **secret persistant**, **vues** visibles dans l'explorateur). Effectuée avec le compte **`data-analyst`** (lecture seule `curated/`), ce qui **démontre concrètement la gouvernance par bucket** (les autres couches restent inaccessibles). Outil d'analyse **hors stack déployée**, documenté dans le [README](../README.md) (section « Explorer les données en SQL »).
+
+**Notions abordées.** Orchestration **Airflow** (DAG, `schedule`, `PythonOperator`, déclenchement manuel vs planifié) et **coquille fine** (séparation logique métier / orchestration) ; **filigrane** (*watermark*) comme état dérivé des données plutôt que de la date d'exécution ; **idempotence par partition** et pipeline **auto-réparant** par cascade ; harmonisation de schémas hétérogènes ; **contrôle d'intégrité DagBag** ; interrogation SQL d'un lac via **DuckDB** (lecture directe de Parquet sur S3, *predicate pushdown* et **élagage par statistiques** de partition) ; distinction **data lake vs lakehouse** (formats de table **Iceberg/Delta/Hudi**, ACID et mutation **ligne-à-ligne** vs **réécriture de partition** sur Parquet immuable).
+
+## 8 juillet 2026 — C20 : cycle de vie des données (Jour 5)
+
+**Activités réalisées.**
+
+- **DAG `archivage`** (module [../datalake/archive.py](../datalake/archive.py)) : déplace les `(ligne, mois)` dont la **date des données** dépasse le seuil de `raw` vers `archive/` (copie en miroir du chemin), puis **purge** les partitions correspondantes de `staging` et `curated`. Vérifié en réel : `lineE` janvier 2025 → `archive/production_lines/lineE/year=2025/month=01/LineE_SmoothRun.csv`, objet `raw` retiré et dérivés purgés.
+- **Règle ILM d'expiration** sur `archive/` à **730 jours** (~2 ans), fondée sur l'**âge des objets** (date d'upload), posée dans [../init-scripts/minio/setup.sh](../init-scripts/minio/setup.sh) et vérifiée (`mc ilm rule ls local/archive`).
+- **Pourquoi un DAG *et* l'ILM** : l'ILM MinIO ne sait faire que l'**expiration** ou la **transition vers un tier distant** — **aucun transfert local de bucket à bucket** (limite documentée) ; « archiver vers `archive/` en local » exige donc un **DAG**, l'ILM restant employé pour l'**expiration** (l'opération que l'énoncé nomme).
+- **Réintégration par le filigrane** : recopier un objet de `archive/` vers `raw/` suffit — le DAG d'harmonisation voit le jour absent de `staging` et **recalcule** `staging` puis `curated`, sans action manuelle sur les couches dérivées.
+- **Écarts assumés** : la démo utilise un seuil d'**18 mois** (au lieu de 180 j) pour n'archiver **que janvier 2025** à ~mi-2026 ; l'**expiration 730 j** est **configurée mais non déclenchable** ici (objets datés de 2026). Politique complète : [../docs/gouvernance-cycle-de-vie.md](../docs/gouvernance-cycle-de-vie.md).
+- **TDD pur Python** : `archive.py` développé et testé avec un **faux client S3** (incluant `copy_object`), sans dépendance à MinIO pour les tests unitaires.
+
+**Notions abordées.** Gestion du cycle de vie (**ILM**) et distinction **archivage** (transfert de couche) vs **expiration** (suppression) ; limites de l'ILM objet (expiration / transition vers tier distant, pas de copie locale bucket-à-bucket) ; seuil sur la **date de la donnée** vs seuil sur l'**âge de l'objet** ; réintégration **auto-réparante** par filigrane ; politique de rétention écrite et gouvernée.
+
+## 9 juillet 2026 — C20 : catalogue OpenMetadata (Jour 5)
+
+**Activités réalisées.**
+
+- **Connexion OpenMetadata ↔ MinIO** via un **service de stockage S3** (connecteur natif), décrit en **config-as-code** ([../init-scripts/openmetadata/s3-storage-ingestion.yaml](../init-scripts/openmetadata/s3-storage-ingestion.yaml)) et lancé par la CLI `metadata` — reproductible, sans clic manuel. Résultat : les **4 buckets** et **16 conteneurs structurés** (une entité par ligne et par couche), colonnes comprises.
+- **Schéma des colonnes** obtenu via un **manifest** `openmetadata.json` déposé à la racine de chaque bucket : OpenMetadata lit un fichier échantillon et **infère les colonnes**. Le catalogue **rend visible l'hétérogénéité des sources** en `raw` (`Temperature`/`temperature`, `Elapsed_time`, colonnes absentes) et le schéma **harmonisé** en `staging`/`curated` — la difficulté centrale du brief devient lisible dans l'outil.
+- **5 fiches `raw` enrichies** (SDK OpenMetadata, [../init-scripts/openmetadata/enrich.py](../init-scripts/openmetadata/enrich.py)) : **propriétaire** (équipe *Responsable maintenance*), **description** (source Zenodo record `15277168`, **fréquence** 1 relevé/minute, sémantique de `label`), **unités des colonnes** (`temperature` °C, `pressure` bar, `elapsed_time` nullable, `timestamp` ISO 8601).
+- **Pipelines + lignage** : le connecteur **Airflow** catalogue les **4 DAGs** comme *Pipelines* et déduit le **lignage** entre conteneurs à partir d'annotations `inlets`/`outlets` (métadonnées pures, [../dags/_om_lineage.py](../dags/_om_lineage.py)). Graphe obtenu et vérifié par l'API : `raw.lineX → staging.lineX → curated.line=lineX` et `raw.lineE → archive.lineE`, chaque arête **attribuée au DAG** responsable.
+- **Non-invasivité** : le catalogue est **observationnel** — aucune modification de la logique des DAGs ni des buckets ; les `inlets`/`outlets` n'ont **aucun effet d'exécution** (validé par `airflow dags list-import-errors`).
+- **Méthode hybride** : ingestion et enrichissement **scriptés** (reproductibles) ; l'UI sert à la **consultation** et fournit les **captures** du livrable.
+
+**Hétérogénéité des schémas source, telle que le catalogue la révèle** (colonnes `raw`, hors partitions `year`/`month`, extraites de l'API OpenMetadata) :
+
+| Concept | lineA | lineB | lineC | lineD | lineE |
+|---|---|---|---|---|---|
+| **timestamp** | `timestamp` | `timestamp` | `timestamp` | `timestamp` | `timestamp` |
+| **temperature** | `Temperature` | `temperature` | `Temperature` | `temperature` | `Temperature` |
+| **pressure** | `pressure` | `pressure` | `pressure` | `Pressure` | `pressure` |
+| **elapsed_time** | `elapsed_time` | `Elapsed_time` | ❌ absent | ❌ absent | ❌ absent |
+| **label** | `label` | `label` | `label` | `label` | `label` |
+
+Trois écarts à traiter à l'harmonisation : la **casse** des colonnes (`Temperature`/`temperature`, `Pressure` sur lineD), la **casse** d'`Elapsed_time` (lineB), et surtout la **présence/absence d'`elapsed_time`** (présent A/B, absent C/D/E → colonne `null` après harmonisation). Seuls `timestamp` et `label` sont homogènes. Le schéma cible unifié (`staging`/`curated`) résout ces écarts.
+
+**Captures OpenMetadata.** (index et procédure : [../docs/captures-openmetadata/README.md](../docs/captures-openmetadata/README.md))
+
+![Service datalake_minio et les conteneurs des 4 buckets](../docs/captures-openmetadata/01-service-containers.png)
+*Le service de stockage `datalake_minio` et les conteneurs des 4 couches (raw / staging / curated / archive).*
+
+![Fiche raw lineA : description et propriétaire](../docs/captures-openmetadata/02-fiche-raw-lineA.png)
+*Fiche `raw` d'une ligne : description (source Zenodo, fréquence), propriétaire et colonnes documentées.*
+
+![Hétérogénéité des schémas raw](../docs/captures-openmetadata/04-heterogeneite-schemas.png)
+*Comparaison de deux schémas `raw` : casse des colonnes et présence/absence d'`elapsed_time`.*
+
+![Schéma harmonisé en staging](../docs/captures-openmetadata/05-schema-harmonise-staging.png)
+*Le même contenu, harmonisé en `staging` : colonnes en minuscules, `elapsed_time` présent, contraintes de nullité.*
+
+![Pipelines Airflow catalogués](../docs/captures-openmetadata/06-pipelines.png)
+*Les 4 DAGs catalogués comme *Pipelines* dans le service `datalake_airflow`.*
+
+![Graphe de lignage](../docs/captures-openmetadata/07-lignage.png)
+*Lignage de bout en bout : `raw → staging → curated` et `raw → archive`, chaque arête attribuée à son DAG.*
+
+**Notions abordées.** Catalogue de données et **gouvernance des métadonnées** ; connecteur de stockage S3 et **manifest** d'inférence de schéma ; **lignage** (data lineage) inter-couches et son extraction depuis Airflow (`inlets`/`outlets`, regroupement par `key`) ; authentification par **jeton de bot** ; approche **config-as-code** d'un outil tiers.
+
+## 10 juillet 2026 — C21 : sécurité & gouvernance (Jours 6-7)
+
+**Activités réalisées.**
+
+- **Chiffrement au repos SSE-S3** activé sur les 4 buckets via le **KMS intégré** de MinIO (`MINIO_KMS_SECRET_KEY`), auto-chiffrement posé par `mc encrypt set sse-s3` dans [../init-scripts/minio/setup.sh](../init-scripts/minio/setup.sh). Chiffrement **côté serveur, transparent** pour les clients (boto3, `mc`, DuckDB) ; vérifié par `mc encrypt info` (règle active) et `mc stat` sur un objet témoin (`Encryption: SSE-S3`).
+- **Matrice des droits + politique de gouvernance** écrite : [../docs/gouvernance-acces-securite.md](../docs/gouvernance-acces-securite.md) (qui accède à quelles lignes, sous quelles conditions, responsabilités par rôle).
+- **Extension `data-engineer` → `archive`** (lecture/écriture) : ce rôle porte le cycle de vie (archivage + réintégration). Extension assumée au-delà de la lettre de l'énoncé (qui ne listait que raw/staging/curated). Accès vérifié en réel (écriture + lecture sur `archive`).
+- **Comptes différenciés** déjà en place depuis le C19 (3 rôles, policies par bucket).
+
+**Écart assumé.** SSE-S3 ne chiffre que les écritures postérieures à son activation. Idéalement, la règle est posée **avant** toute ingestion ; sur l'instance de démo déjà peuplée, les objets existants n'ont **pas** été régénérés (pour ne pas rejouer le pipeline) — ils restent en clair, tandis qu'une reproduction *from scratch* chiffre l'intégralité (l'init pose la règle avant tout chargement).
+
+**Choix assumé.** Les **logs d'audit** MinIO ne sont pas activés (cible webhook/Kafka requise, surcoût d'infra non retenu) ; documentés en « évolutions possibles ». La **ségrégation par ligne** et **KES** (gestion des clés en production) sont également mentionnés comme évolutions.
+
+**Notions abordées.** Chiffrement au repos **SSE-S3** et rôle d'un **KMS** ; **moindre privilège** et policies IAM par bucket (ARN, actions S3) ; gouvernance des accès (matrice, conditions, responsabilités) ; distinction chiffrement **côté serveur** (transparent) vs côté client.

@@ -10,7 +10,7 @@ Trois comptes de service MinIO aux policies IAM différenciées par bucket (cré
 |---|---|---|---|---|
 | `data-analyst` | — | — | lecture | — |
 | `data-engineer` | lecture/écriture | lecture/écriture | lecture/écriture | lecture/écriture |
-| `admin` | tous droits | tous droits | tous droits | tous droits |
+| `datalake-admin` | tous droits | tous droits | tous droits | tous droits |
 
 Le compte **root** MinIO (`minioadmin`) n'est pas utilisé au quotidien ; il sert à l'amorçage (job `minio-init`) et à l'administration exceptionnelle.
 
@@ -29,7 +29,7 @@ Le contrôle d'accès est **par couche** (bucket), **uniforme sur les 5 lignes d
 
 - **`data-analyst`** — consultation et analyse des données `curated` (SQL/DuckDB, tableaux de bord). Aucune écriture, aucun accès aux couches amont.
 - **`data-engineer`** — pipelines d'ingestion et de transformation (`raw`→`staging`→`curated`), qualité des données, et **cycle de vie** (archivage `raw`→`archive` et réintégration). Dispose d'un accès lecture/écriture sur les 4 buckets.
-- **`admin`** — infrastructure, création et attachement des comptes/policies, configuration du chiffrement, supervision des règles ILM.
+- **`datalake-admin`** — infrastructure, création et attachement des comptes/policies, configuration du chiffrement, supervision des règles ILM.
 
 ## Chiffrement au repos (SSE-S3)
 
