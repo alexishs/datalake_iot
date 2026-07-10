@@ -16,7 +16,12 @@ from datalake.storage import get_s3_client
 @dag(
     dag_id="archivage",
     description="Archive raw → archive/ (+ purge staging/curated) au-delà de 18 mois (démo).",
-    schedule="@daily",
+    # Cadence MENSUELLE : l'éligibilité se décide au mois (raw partitionné au mois,
+    # seuil comparé en mois) — la population éligible ne change qu'au passage d'un
+    # mois. Un @daily ferait ~30 exécutions à vide/mois. (À l'inverse des DAGs
+    # fil-de-l'eau harmonisation/consolidation, pilotés par l'arrivée continue de
+    # données, donc à la minute.) La suppression relève de l'ILM MinIO (continu).
+    schedule="@monthly",
     start_date=datetime(2025, 1, 1),
     catchup=False,
     max_active_runs=1,
