@@ -23,6 +23,15 @@ for bucket in raw staging curated archive; do
   mc mb --ignore-existing "local/$bucket"
 done
 
+# --- Chiffrement au repos SSE-S3 sur les 4 buckets (C21) --------------------
+# Auto-chiffrement : tout objet écrit ENSUITE est chiffré côté serveur via le
+# KMS intégré (clé MINIO_KMS_SECRET_KEY). Non rétroactif : les objets déjà
+# présents restent en clair (cf. rapport). Requiert le KMS actif sur le serveur.
+for bucket in raw staging curated archive; do
+  mc encrypt set sse-s3 "local/$bucket"
+done
+echo "SSE-S3 : auto-chiffrement activé sur raw/staging/curated/archive."
+
 # --- Policies IAM personnalisées (droits par bucket) ------------------------
 # `create` échoue si la policy existe déjà -> ignoré pour l'idempotence.
 mc admin policy create local data-analyst  "$POLICIES/data-analyst.json"  2>/dev/null || true

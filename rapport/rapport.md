@@ -134,12 +134,27 @@ Trois écarts à traiter à l'harmonisation : la **casse** des colonnes (`Temper
 
 **Notions abordées.** Catalogue de données et **gouvernance des métadonnées** ; connecteur de stockage S3 et **manifest** d'inférence de schéma ; **lignage** (data lineage) inter-couches et son extraction depuis Airflow (`inlets`/`outlets`, regroupement par `key`) ; authentification par **jeton de bot** ; approche **config-as-code** d'un outil tiers.
 
+### 10 juillet 2026 — C21 : sécurité & gouvernance (Jours 6-7)
+
+**Activités réalisées.**
+
+- **Chiffrement au repos SSE-S3** activé sur les 4 buckets via le **KMS intégré** de MinIO (`MINIO_KMS_SECRET_KEY`), auto-chiffrement posé par `mc encrypt set sse-s3` dans [../init-scripts/minio/setup.sh](../init-scripts/minio/setup.sh). Chiffrement **côté serveur, transparent** pour les clients (boto3, `mc`, DuckDB) ; vérifié par `mc encrypt info` (règle active) et `mc stat` sur un objet témoin (`Encryption: SSE-S3`).
+- **Matrice des droits + politique de gouvernance** écrite : [../docs/gouvernance-acces-securite.md](../docs/gouvernance-acces-securite.md) (qui accède à quelles lignes, sous quelles conditions, responsabilités par rôle).
+- **Extension `data-engineer` → `archive`** (lecture/écriture) : ce rôle porte le cycle de vie (archivage + réintégration). Extension assumée au-delà de la lettre de l'énoncé (qui ne listait que raw/staging/curated). Accès vérifié en réel (écriture + lecture sur `archive`).
+- **Comptes différenciés** déjà en place depuis le C19 (3 rôles, policies par bucket).
+
+**Écart assumé.** SSE-S3 ne chiffre que les écritures postérieures à son activation. Idéalement, la règle est posée **avant** toute ingestion ; sur l'instance de démo déjà peuplée, les objets existants n'ont **pas** été régénérés (pour ne pas rejouer le pipeline) — ils restent en clair, tandis qu'une reproduction *from scratch* chiffre l'intégralité (l'init pose la règle avant tout chargement).
+
+**Choix assumé.** Les **logs d'audit** MinIO ne sont pas activés (cible webhook/Kafka requise, surcoût d'infra non retenu) ; documentés en « évolutions possibles ». La **ségrégation par ligne** et **KES** (gestion des clés en production) sont également mentionnés comme évolutions.
+
+**Notions abordées.** Chiffrement au repos **SSE-S3** et rôle d'un **KMS** ; **moindre privilège** et policies IAM par bucket (ARN, actions S3) ; gouvernance des accès (matrice, conditions, responsabilités) ; distinction chiffrement **côté serveur** (transparent) vs côté client.
+
 ## 3. Auto-évaluation par compétence
 
 - **C18 — Architecture & analyse** : *acquis*. Les 5 lignes ont été analysées **avant** toute décision technique (volumétrie, schémas, hétérogénéités) ; l'architecture en couches est justifiée au regard de la volumétrie et de la fréquence ; le schéma annoté est lisible et exploitable par un tiers.
 - **C19 — Intégration** : *acquis*. Stack reproductible via Docker Compose ; ingestion vers `raw/` avec **vérification MD5** et **idempotence** ; **3 DAGs** (ingestion → harmonisation → consolidation) en fil-de-l'eau ; LineA traitée par jour (chunks) ; procédure d'intégration documentée dans le README.
 - **C20 — Catalogue & cycle de vie** : *acquis*. **Catalogue OpenMetadata** config-as-code : service S3 → MinIO, 5 fiches `raw` (colonnes documentées, propriétaire, source, fréquence), 4 pipelines et **lignage** `raw→staging→curated` + `raw→archive` ; catalogue **non-invasif**. **Cycle de vie** : archivage `raw→archive` par DAG (l'ILM MinIO ne copiant pas localement) et **expiration** par règle ILM (730 j), réintégration auto-réparante par filigrane.
-- **C21 — Sécurité & gouvernance** : *partiellement anticipé*. Les **3 comptes de service** aux droits différenciés par bucket sont déjà en place (réalisés dès le C19) ; restent le chiffrement **SSE-S3**, les **logs d'audit** et la rédaction de la **politique de gouvernance** écrite.
+- **C21 — Sécurité & gouvernance** : *acquis (hors audit)*. **3 comptes** aux droits différenciés par bucket (C19), **chiffrement SSE-S3** au repos sur les 4 buckets (KMS intégré), **matrice des droits + politique de gouvernance** écrite. Les **logs d'audit** ne sont pas activés (choix assumé, documenté en évolution possible), de même que la ségrégation par ligne.
 - **Recul sur les choix** : plusieurs décisions vont **au-delà de l'énoncé** tout en restant justifiées et documentées — 3ᵉ DAG de consolidation, cadence minute, **filigrane auto-réparant**, exploration des données en SQL (**DuckDB**) — sans complexifier inutilement le projet.
 
 ## 4. Annexes

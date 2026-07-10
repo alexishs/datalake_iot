@@ -104,6 +104,8 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # KMS intégré à clé unique : active le chiffrement SSE-S3 (C21).
+      MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY}
     volumes:
       - minio-data:/data
     ports:
