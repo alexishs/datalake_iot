@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from _om_lineage import LINES, container
 from airflow.decorators import dag, task
 
 from datalake.harmonization import harmonize_step
@@ -23,7 +24,11 @@ from datalake.runner import checked
     tags=["c19", "harmonisation", "staging"],
 )
 def harmonisation_staging() -> None:
-    @task
+    # Lignage (C20) : raw.lineX → staging.lineX (appariement par `key`).
+    @task(
+        inlets=[container("raw", line, line) for line in LINES],
+        outlets=[container("staging", line, line) for line in LINES],
+    )
     def harmoniser() -> str:
         return checked(harmonize_step())
 

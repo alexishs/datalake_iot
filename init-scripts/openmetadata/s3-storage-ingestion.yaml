@@ -1,0 +1,54 @@
+# =============================================================================
+#  C20 — Ingestion des métadonnées du data lake MinIO dans OpenMetadata.
+#
+#  Service de stockage S3 (compatible MinIO) → découvre les conteneurs des 4
+#  buckets (raw / staging / curated / archive). Le schéma des colonnes est
+#  déclaré via un manifest LOCAL `openmetadata.json` déposé à la RACINE de
+#  chaque bucket (cf. manifests/ + run-ingestion.sh).
+#
+#  Config-as-code : ce fichier est la source de vérité, lançable avec la CLI
+#    metadata ingest -c s3-storage-ingestion.yaml
+#  (l'UI OpenMetadata génère exactement le même YAML sous le capot).
+#
+#  Secrets : ${...} substitués à l'exécution par run-ingestion.sh depuis .env
+#  (jamais de credential en clair dans le dépôt).
+#
+#  Noms d'hôte = réseau Docker `datalake` (résolus dans le conteneur
+#  d'ingestion) : minio:9000 et openmetadata-server:8585.
+# =============================================================================
+source:
+  type: s3
+  serviceName: datalake_minio
+  serviceConnection:
+    config:
+      type: S3
+      awsConfig:
+        awsAccessKeyId: ${MINIO_ROOT_USER}
+        awsSecretAccessKey: ${MINIO_ROOT_PASSWORD}
+        # MinIO est agnostique à la région ; us-east-1 satisfait la formalité de
+        # signature SigV4 attendue par le client AWS (aucune ressource régionale).
+        awsRegion: us-east-1
+        endPointURL: http://minio:9000
+      # Les 4 couches du data lake. Chaque bucket porte son propre manifest.
+      bucketNames:
+        - raw
+        - staging
+        - curated
+        - archive
+  sourceConfig:
+    config:
+      type: StorageMetadata
+      # storageMetadataConfigSource omis volontairement : sans manifest GLOBAL,
+      # le connecteur lit le manifest LOCAL `openmetadata.json` déposé à la
+      # racine de chaque bucket.
+      markDeletedContainers: true
+sink:
+  type: metadata-rest
+  config: {}
+workflowConfig:
+  loggerLevel: INFO
+  openMetadataServerConfig:
+    hostPort: http://openmetadata-server:8585/api
+    authProvider: openmetadata
+    securityConfig:
+      jwtToken: ${OPENMETADATA_JWT_TOKEN}

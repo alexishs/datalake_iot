@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from _om_lineage import container
 from airflow.decorators import dag, task
 
 from datalake.archive import archive_month, mois_a_archiver
@@ -22,7 +23,12 @@ from datalake.storage import get_s3_client
     tags=["c20", "archive", "cycle-de-vie"],
 )
 def archivage() -> None:
-    @task
+    # Lignage (C20) : raw.lineE → archive.lineE (seule ligne archivée par la démo ;
+    # les deux conteneurs doivent exister dans le catalogue pour tracer l'arête).
+    @task(
+        inlets=[container("raw", "lineE", "lineE")],
+        outlets=[container("archive", "lineE", "lineE")],
+    )
     def lister_mois() -> list[list]:
         return [list(t) for t in mois_a_archiver(get_s3_client(), date.today())]
 

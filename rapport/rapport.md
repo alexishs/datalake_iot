@@ -89,11 +89,56 @@ Stack imposée : **MinIO** (stockage objet S3), **Apache Airflow** (orchestratio
 
 **Notions abordées.** Gestion du cycle de vie (**ILM**) et distinction **archivage** (transfert de couche) vs **expiration** (suppression) ; limites de l'ILM objet (expiration / transition vers tier distant, pas de copie locale bucket-à-bucket) ; seuil sur la **date de la donnée** vs seuil sur l'**âge de l'objet** ; réintégration **auto-réparante** par filigrane ; politique de rétention écrite et gouvernée.
 
+### 9 juillet 2026 — C20 : catalogue OpenMetadata (Jour 5)
+
+**Activités réalisées.**
+
+- **Connexion OpenMetadata ↔ MinIO** via un **service de stockage S3** (connecteur natif), décrit en **config-as-code** ([../init-scripts/openmetadata/s3-storage-ingestion.yaml](../init-scripts/openmetadata/s3-storage-ingestion.yaml)) et lancé par la CLI `metadata` — reproductible, sans clic manuel. Résultat : les **4 buckets** et **16 conteneurs structurés** (une entité par ligne et par couche), colonnes comprises.
+- **Schéma des colonnes** obtenu via un **manifest** `openmetadata.json` déposé à la racine de chaque bucket : OpenMetadata lit un fichier échantillon et **infère les colonnes**. Le catalogue **rend visible l'hétérogénéité des sources** en `raw` (`Temperature`/`temperature`, `Elapsed_time`, colonnes absentes) et le schéma **harmonisé** en `staging`/`curated` — la difficulté centrale du brief devient lisible dans l'outil.
+- **5 fiches `raw` enrichies** (SDK OpenMetadata, [../init-scripts/openmetadata/enrich.py](../init-scripts/openmetadata/enrich.py)) : **propriétaire** (équipe *Responsable maintenance*), **description** (source Zenodo record `15277168`, **fréquence** 1 relevé/minute, sémantique de `label`), **unités des colonnes** (`temperature` °C, `pressure` bar, `elapsed_time` nullable, `timestamp` ISO 8601).
+- **Pipelines + lignage** : le connecteur **Airflow** catalogue les **4 DAGs** comme *Pipelines* et déduit le **lignage** entre conteneurs à partir d'annotations `inlets`/`outlets` (métadonnées pures, [../dags/_om_lineage.py](../dags/_om_lineage.py)). Graphe obtenu et vérifié par l'API : `raw.lineX → staging.lineX → curated.line=lineX` et `raw.lineE → archive.lineE`, chaque arête **attribuée au DAG** responsable.
+- **Non-invasivité** : le catalogue est **observationnel** — aucune modification de la logique des DAGs ni des buckets ; les `inlets`/`outlets` n'ont **aucun effet d'exécution** (validé par `airflow dags list-import-errors`).
+- **Méthode hybride** : ingestion et enrichissement **scriptés** (reproductibles) ; l'UI sert à la **consultation** et fournit les **captures** du livrable.
+
+**Hétérogénéité des schémas source, telle que le catalogue la révèle** (colonnes `raw`, hors partitions `year`/`month`, extraites de l'API OpenMetadata) :
+
+| Concept | lineA | lineB | lineC | lineD | lineE |
+|---|---|---|---|---|---|
+| **timestamp** | `timestamp` | `timestamp` | `timestamp` | `timestamp` | `timestamp` |
+| **temperature** | `Temperature` | `temperature` | `Temperature` | `temperature` | `Temperature` |
+| **pressure** | `pressure` | `pressure` | `pressure` | `Pressure` | `pressure` |
+| **elapsed_time** | `elapsed_time` | `Elapsed_time` | ❌ absent | ❌ absent | ❌ absent |
+| **label** | `label` | `label` | `label` | `label` | `label` |
+
+Trois écarts à traiter à l'harmonisation : la **casse** des colonnes (`Temperature`/`temperature`, `Pressure` sur lineD), la **casse** d'`Elapsed_time` (lineB), et surtout la **présence/absence d'`elapsed_time`** (présent A/B, absent C/D/E → colonne `null` après harmonisation). Seuls `timestamp` et `label` sont homogènes. Le schéma cible unifié (`staging`/`curated`) résout ces écarts.
+
+**Captures OpenMetadata.** (index et procédure : [../docs/captures-openmetadata/README.md](../docs/captures-openmetadata/README.md))
+
+![Service datalake_minio et les conteneurs des 4 buckets](../docs/captures-openmetadata/01-service-containers.png)
+*Le service de stockage `datalake_minio` et les conteneurs des 4 couches (raw / staging / curated / archive).*
+
+![Fiche raw lineA : description et propriétaire](../docs/captures-openmetadata/02-fiche-raw-lineA.png)
+*Fiche `raw` d'une ligne : description (source Zenodo, fréquence), propriétaire et colonnes documentées.*
+
+![Hétérogénéité des schémas raw](../docs/captures-openmetadata/04-heterogeneite-schemas.png)
+*Comparaison de deux schémas `raw` : casse des colonnes et présence/absence d'`elapsed_time`.*
+
+![Schéma harmonisé en staging](../docs/captures-openmetadata/05-schema-harmonise-staging.png)
+*Le même contenu, harmonisé en `staging` : colonnes en minuscules, `elapsed_time` présent, contraintes de nullité.*
+
+![Pipelines Airflow catalogués](../docs/captures-openmetadata/06-pipelines.png)
+*Les 4 DAGs catalogués comme *Pipelines* dans le service `datalake_airflow`.*
+
+![Graphe de lignage](../docs/captures-openmetadata/07-lignage.png)
+*Lignage de bout en bout : `raw → staging → curated` et `raw → archive`, chaque arête attribuée à son DAG.*
+
+**Notions abordées.** Catalogue de données et **gouvernance des métadonnées** ; connecteur de stockage S3 et **manifest** d'inférence de schéma ; **lignage** (data lineage) inter-couches et son extraction depuis Airflow (`inlets`/`outlets`, regroupement par `key`) ; authentification par **jeton de bot** ; approche **config-as-code** d'un outil tiers.
+
 ## 3. Auto-évaluation par compétence
 
 - **C18 — Architecture & analyse** : *acquis*. Les 5 lignes ont été analysées **avant** toute décision technique (volumétrie, schémas, hétérogénéités) ; l'architecture en couches est justifiée au regard de la volumétrie et de la fréquence ; le schéma annoté est lisible et exploitable par un tiers.
 - **C19 — Intégration** : *acquis*. Stack reproductible via Docker Compose ; ingestion vers `raw/` avec **vérification MD5** et **idempotence** ; **3 DAGs** (ingestion → harmonisation → consolidation) en fil-de-l'eau ; LineA traitée par jour (chunks) ; procédure d'intégration documentée dans le README.
-- **C20 — Catalogue & cycle de vie** : *à venir* (Jour 5) — fiches OpenMetadata et politique ILM.
+- **C20 — Catalogue & cycle de vie** : *acquis*. **Catalogue OpenMetadata** config-as-code : service S3 → MinIO, 5 fiches `raw` (colonnes documentées, propriétaire, source, fréquence), 4 pipelines et **lignage** `raw→staging→curated` + `raw→archive` ; catalogue **non-invasif**. **Cycle de vie** : archivage `raw→archive` par DAG (l'ILM MinIO ne copiant pas localement) et **expiration** par règle ILM (730 j), réintégration auto-réparante par filigrane.
 - **C21 — Sécurité & gouvernance** : *partiellement anticipé*. Les **3 comptes de service** aux droits différenciés par bucket sont déjà en place (réalisés dès le C19) ; restent le chiffrement **SSE-S3**, les **logs d'audit** et la rédaction de la **politique de gouvernance** écrite.
 - **Recul sur les choix** : plusieurs décisions vont **au-delà de l'énoncé** tout en restant justifiées et documentées — 3ᵉ DAG de consolidation, cadence minute, **filigrane auto-réparant**, exploration des données en SQL (**DuckDB**) — sans complexifier inutilement le projet.
 

@@ -1,0 +1,49 @@
+{
+  "entries": [
+    {
+      "dataPath": "production_lines/lineA",
+      "structureFormat": "csv",
+      "isPartitioned": true,
+      "partitionColumns": [
+        { "name": "year", "dataType": "INT" },
+        { "name": "month", "dataType": "INT" }
+      ]
+    },
+    {
+      "dataPath": "production_lines/lineB",
+      "structureFormat": "csv",
+      "isPartitioned": true,
+      "partitionColumns": [
+        { "name": "year", "dataType": "INT" },
+        { "name": "month", "dataType": "INT" }
+      ]
+    },
+    {
+      "dataPath": "production_lines/lineC",
+      "structureFormat": "csv",
+      "isPartitioned": true,
+      "partitionColumns": [
+        { "name": "year", "dataType": "INT" },
+        { "name": "month", "dataType": "INT" }
+      ]
+    },
+    {
+      "dataPath": "production_lines/lineD",
+      "structureFormat": "csv",
+      "isPartitioned": true,
+      "partitionColumns": [
+        { "name": "year", "dataType": "INT" },
+        { "name": "month", "dataType": "INT" }
+      ]
+    },
+    {
+      "dataPath": "production_lines/lineE",
+      "structureFormat": "csv",
+      "isPartitioned": true,
+      "partitionColumns": [
+        { "name": "year", "dataType": "INT" },
+        { "name": "month", "dataType": "INT" }
+      ]
+    }
+  ]
+}

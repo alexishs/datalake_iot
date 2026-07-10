@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from _om_lineage import LINES, container
 from airflow.decorators import dag, task
 
 from datalake.explore import csv_paths
@@ -26,7 +27,9 @@ DATA_DIR = "/opt/airflow/data"  # ./data monté ici (cf. compose.yaml)
     tags=["c19", "ingestion", "raw"],
 )
 def ingestion_raw() -> None:
-    @task
+    # Lignage (C20) : ce DAG produit les conteneurs `raw` (source externe = CSV,
+    # sans entité amont dans le catalogue). Métadonnées lues par OpenMetadata.
+    @task(outlets=[container("raw", line, line) for line in LINES])
     def lister_csv() -> list[str]:
         return [str(p) for p in csv_paths(DATA_DIR)]
 

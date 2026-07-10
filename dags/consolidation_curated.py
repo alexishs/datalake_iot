@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from _om_lineage import LINES, container
 from airflow.decorators import dag, task
 
 from datalake.consolidation import consolidate_step
@@ -23,7 +24,11 @@ from datalake.runner import checked
     tags=["c19", "consolidation", "curated"],
 )
 def consolidation_curated() -> None:
-    @task
+    # Lignage (C20) : staging.lineX → curated.line=lineX (partition Hive `line=`).
+    @task(
+        inlets=[container("staging", line, line) for line in LINES],
+        outlets=[container("curated", f"line={line}", line) for line in LINES],
+    )
     def consolider() -> str:
         return checked(consolidate_step())
 

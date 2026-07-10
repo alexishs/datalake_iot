@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "dataPath": "production_lines/lineE",
+      "structureFormat": "csv",
+      "isPartitioned": true,
+      "partitionColumns": [
+        { "name": "year", "dataType": "INT" },
+        { "name": "month", "dataType": "INT" }
+      ]
+    }
+  ]
+}
