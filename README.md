@@ -66,7 +66,7 @@ Tout est conteneurisé via Docker Compose. Trois briques fonctionnelles + une ba
 | **elasticsearch** | Index de recherche requis par OpenMetadata | `localhost:9200` |
 | **execute-migrate-all** | Job jetable : crée/met à jour le schéma OpenMetadata *avant* le serveur | — |
 | **openmetadata-server** | Catalogue de métadonnées / gouvernance | UI `localhost:8585` |
-| **openmetadata-ingestion** | Airflow interne d'OpenMetadata (séparé de l'Airflow métier) | UI `localhost:8082` |
+| **openmetadata-ingestion** | Airflow interne d'OpenMetadata — **non utilisé dans ce projet** (catalogage en config-as-code) ; conservé pour rester proche d'un déploiement standard, **retirable** (voir *Choix d'architecture*) | UI `localhost:8082` |
 | **dev** | Conteneur de développement où VSCode s'attache pour tester/déboguer | — (réseau Docker) |
 
 > Les services `airflow-init`, `minio-init` et `execute-migrate-all` sont des **jobs one-shot** : ils s'exécutent une fois puis s'arrêtent. Les voir en `Exited (0)` dans `docker compose ps -a` est **normal**, pas une erreur.
@@ -75,6 +75,7 @@ Tout est conteneurisé via Docker Compose. Trois briques fonctionnelles + une ba
 
 - **Postgres mutualisé** : un seul conteneur héberge 3 bases avec 3 utilisateurs distincts (isolation préservée). Gain de ressources sans couplage fonctionnel.
 - **2 Airflow séparés** : l'Airflow métier (DAGs d'ingestion/harmonisation) et celui d'OpenMetadata (ingestion du catalogue) restent indépendants — responsabilités claires, moins de pièges de configuration qu'une mutualisation.
+- **Airflow d'OpenMetadata non utilisé — supprimable** : le catalogage est fait en **config-as-code** (CLI `metadata`, mode « ingestion externe » d'OpenMetadata — cf. [Cataloguer le data lake](#cataloguer-le-data-lake-openmetadata)), **pas** via l'UI. L'ordonnanceur Airflow intégré d'OM (`openmetadata-ingestion`) ne sert donc ici qu'à **héberger la CLI** ; sa planification/supervision n'est pas exploitée. Il **pourrait être retiré** (exécution de la CLI dans un conteneur éphémère). Il est **conservé** pour rester proche d'un déploiement OpenMetadata **standard** ; en production, on le garderait pour **planifier des ré-ingestions récurrentes**, ou l'on brancherait OM sur un **orchestrateur existant**.
 - **Conteneur `dev`** : permet de déboguer le code Python *dans le réseau Docker*, donc avec les mêmes noms d'hôte que la production (voir plus bas).
 
 ```

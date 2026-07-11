@@ -1,6 +1,4 @@
-# Rapport professionnel — Data Lake IoT industriel (épreuve E7)
-
-> **Rapport de synthèse** : contexte, auto-évaluation par compétence et annexes. Le **journal de réalisation** détaillé (activités par date réelle, notions abordées et choix justifiés — cf. CLAUDE.md, règle 6) est tenu à part dans **[journal.md](journal.md)**, dont ce rapport est la **consolidation**. La version finale (≥ 5 pages) est mise au propre au Jour 8, puis exportée en PDF. Détails techniques : [docs/architecture.md](../docs/architecture.md) ; exploration des données : [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
+# Rapport — Data Lake IoT industriel
 
 ## 1. Contexte & objectifs
 
@@ -20,6 +18,18 @@ Stack imposée : **MinIO** (stockage objet S3), **Apache Airflow** (orchestratio
 
 ## 3. Annexes
 
+**Documentation du projet** (également indexée dans le [README](../README.md)) :
+
+- [README.md](../README.md) — **installation et utilisation** : reproduction de l'environnement, exécution du code, sommaire + index de la documentation.
+- [docs/architecture.md](../docs/architecture.md) — **architecture** en couches, partitionnement, schéma annoté, contrat d'implémentation (C18).
+- [docs/gouvernance-cycle-de-vie.md](../docs/gouvernance-cycle-de-vie.md) — politique de **cycle de vie** : archivage `raw→archive` par DAG + expiration ILM (C20).
+- [docs/gouvernance-acces-securite.md](../docs/gouvernance-acces-securite.md) — **matrice des droits** + politique de gouvernance & chiffrement SSE-S3 (C21).
+- [init-scripts/openmetadata/README.md](../init-scripts/openmetadata/README.md) — procédure d'ingestion du **catalogue OpenMetadata** (config-as-code) : conteneurs, fiches, lignage.
+- [docs/captures-openmetadata/README.md](../docs/captures-openmetadata/README.md) — **captures d'écran** du catalogue (C20).
+- [journal.md](journal.md) — **journal de réalisation** au fil de l'eau (activités, notions, choix par date) dont ce rapport est la consolidation.
+
+**Autres ressources :**
+
+- Exploration des données (Jour 1) : [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
 - Schéma d'architecture annoté : [docs/architecture.md](../docs/architecture.md) (§2).
-- Exploration des données : [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
-- Dépôt Git organisé : voir [README.md](../README.md).
+- Dépôt Git organisé (structure du dépôt) : voir le [README](../README.md).
