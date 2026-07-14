@@ -1,6 +1,6 @@
 # Dossier d'architecture — Data Lake IoT industriel (C18)
 
-> Modélisation de l'architecture en couches et justification des choix techniques. Le **schéma technique annoté** est le diagramme **Mermaid** du §2 (rendu nativement sur GitHub ; export `architecture.pdf` pour le livrable formel). L'analyse des données qui fonde ces choix est dans [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
+> Modélisation de l'architecture en couches et justification des choix techniques. Le **schéma technique annoté** est le diagramme **Mermaid** du §2 (rendu nativement sur GitHub et dans tout lecteur Markdown compatible Mermaid). L'analyse des données qui fonde ces choix est dans [notebooks/exploration_jour1.ipynb](../notebooks/exploration_jour1.ipynb).
 
 ## 1. Objectif & périmètre
 
@@ -159,7 +159,7 @@ Deux jalons, **deux mécanismes distincts** (et non une seule règle ILM) :
 - **3ᵉ DAG `staging → curated`** (« consolidation ») : **non requis par l'énoncé** (2 DAGs demandés : ingestion brute + harmonisation). **Décision assumée** pour **rester cohérent avec la gestion du flux** déjà prévue en amont — *une couche = un DAG dédié* → pipeline homogène, traçable et idempotent de `raw` jusqu'à `curated`.
 - **Granularités, cadence, filigrane & cascade** : `raw` au **mois** (dépôt des fichiers tels quels + MD5) ; `staging`/`curated` au **jour** (`…/day=DD/`). Le DAG `raw → staging` **se déclenche toutes les minutes** et traite **une journée par exécution**, la journée étant choisie par un **filigrane** (dernier jour présent en `staging`). Un (ré)import en `raw` **vide la même `(ligne, mois)` en `staging` ET en `curated`** (cascade — `curated` dérivant de `staging`, il doit aussi être invalidé), ce qui — via les filigranes — déclenche le **recalcul automatique** des deux couches aval. L'ensemble **réalise** l'exigence « simuler un flux / chunks » du brief ; le **choix précis** (cadence minute, granularité jour, filigrane, cascade) **n'est pas imposé** par l'énoncé : **décisions assumées** pour un flux réaliste, **idempotent et auto-réparant**, avec des **DAGs indépendants**.
 
-- **Schéma en Mermaid** (plutôt que draw.io, *suggéré* par le brief) : **diagramme-as-code**, versionnable et *diffable*, **rendu nativement sur GitHub**, cohérent avec l'approche reproductible du dépôt. Le livrable « PDF / draw.io » est satisfait par un **export PDF**. *(Choix au titre de la « justification des choix » du C18 ; draw.io reste possible si un rendu « poster » est exigé.)*
+- **Schéma en Mermaid** (plutôt que draw.io, *suggéré* par le brief) : **diagramme-as-code**, versionnable et *diffable*, **rendu nativement sur GitHub**, cohérent avec l'approche reproductible du dépôt. Le livrable « schéma annoté » (brief : *PDF / draw.io*) est satisfait par ce **diagramme Mermaid versionné**, rendu sur GitHub. *(Choix au titre de la « justification des choix » du C18 ; draw.io reste possible si un rendu « poster » est exigé.)*
 
 **Hypothèses à lever** (cf. notebook) :
 - **Fuseau horaire** du `timestamp` : non précisé par la source → supposé **UTC**, à documenter.
@@ -204,4 +204,4 @@ Contrat que doit respecter le script/DAG d'ingestion (`raw/`) et d'harmonisation
 
 ## 13. Livrable visuel
 
-Le **schéma technique annoté** est le diagramme **Mermaid** du §2 : il reprend le flux (sources → raw → staging → curated → archive), les briques (MinIO, Airflow, OpenMetadata) et les annotations (partitions mois/jour, formats, MD5, SSE-S3, ILM, rôles d'accès). Il est **rendu nativement sur GitHub** et exploitable par un tiers. Pour le rendu formel : **export `architecture.pdf`** (via l'extension Mermaid de VSCode ou `mermaid-cli`).
+Le **schéma technique annoté** est le diagramme **Mermaid** du §2 : il reprend le flux (sources → raw → staging → curated → archive), les briques (MinIO, Airflow, OpenMetadata) et les annotations (partitions mois/jour, formats, MD5, SSE-S3, ILM, rôles d'accès). Il est **rendu nativement sur GitHub** (et dans tout lecteur Markdown compatible Mermaid) et exploitable par un tiers.
