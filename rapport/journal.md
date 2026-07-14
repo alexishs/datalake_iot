@@ -1,6 +1,6 @@
 # Journal de réalisation — Data Lake IoT industriel (E7)
 
-> Journal tenu **au fil de l'eau**, par **date réelle** de travail (cf. [CLAUDE.md](../CLAUDE.md), règle 6) : activités menées, notions abordées et choix justifiés à chaque étape. La chronologie réelle diffère volontairement du découpage « Jour 1…8 » de l'énoncé (voir le [rapport](rapport.md) §1) ; la compétence (C18–C21) est indiquée en étiquette de chaque entrée. Le [rapport](rapport.md) en est la **consolidation** (synthèse + auto-évaluation).
+> Journal tenu **au fil de l'eau**, par **date réelle** de travail (cf. [CLAUDE.md](../CLAUDE.md), règle 6) : activités menées, notions abordées et choix justifiés à chaque étape. La chronologie réelle diffère volontairement du découpage « Jour 1…8 » de l'énoncé ; la compétence (C18–C21) est indiquée en étiquette de chaque entrée. Le [rapport](rapport.md) en est la **consolidation** (synthèse + auto-évaluation).
 
 ## 2 juin 2026 — Socle technique (transverse, prérequis)
 
